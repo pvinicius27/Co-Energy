@@ -1,0 +1,21 @@
+{
+  "domain": "co_energy",
+  "name": "Gestão de Energia",
+  "version": "0.4.0",
+  "config_flow": true,
+  "documentation": "https://github.com/pvinicius27/Co-Energy",
+  "issue_tracker": "https://github.com/pvinicius27/Co-Energy/issues",
+  "codeowners": [
+    "@pvinicius27"
+  ],
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "dependencies": [
+    "recorder",
+    "http",
+    "panel_custom"
+  ],
+  "requirements": [
+    "pdfplumber==0.11.10"
+  ]
+}

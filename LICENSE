@@ -1,0 +1,117 @@
+LICENÇA DE USO DE SOFTWARE PROPRIETÁRIO
+Gestão de Energia
+
+Copyright (c) 2026 Paulo Vinicius. Todos os direitos reservados.
+
+
+1. DEFINIÇÕES
+
+1.1. "Software" é a integração Gestão de Energia para Home Assistant,
+     incluindo o componente de backend, o cartão de interface, a
+     documentação e quaisquer atualizações fornecidas pelo Autor.
+
+1.2. "Autor" é o titular do copyright indicado acima.
+
+1.3. "Licenciado" é a pessoa física ou jurídica que obteve o Software
+     diretamente do Autor mediante licença concedida por escrito.
+
+1.4. "Instalação" é uma única instância de Home Assistant, identificada
+     pela residência, estabelecimento ou organização que a opera.
+
+
+2. CONCESSÃO
+
+Observado o pagamento devido e o cumprimento desta licença, o Autor
+concede ao Licenciado direito não exclusivo, intransferível e revogável
+de:
+
+2.1. instalar e executar o Software em 1 (uma) Instalação;
+
+2.2. modificar o Software para adequá-lo às necessidades da própria
+     Instalação, permanecendo a modificação sujeita a esta licença;
+
+2.3. manter cópias de segurança, em número razoável e para uso exclusivo
+     de restauração.
+
+
+3. VEDAÇÕES
+
+É vedado ao Licenciado, a qualquer título, oneroso ou gratuito:
+
+3.1. redistribuir, publicar, ceder, emprestar, alugar, sublicenciar ou
+     revender o Software, no todo ou em parte, modificado ou não;
+
+3.2. disponibilizar o código-fonte em repositório público ou privado de
+     terceiros, ou por qualquer outro meio que o torne acessível a quem
+     não seja o Licenciado;
+
+3.3. usar o Software para prestar serviço a terceiros, integrá-lo a
+     produto ou serviço próprio, ou operá-lo em Instalação que não seja
+     a licenciada;
+
+3.4. remover, alterar ou ocultar avisos de autoria, de copyright ou
+     desta licença;
+
+3.5. utilizar o Software, sua arquitetura ou sua documentação para
+     desenvolver produto concorrente.
+
+
+4. PROPRIEDADE INTELECTUAL
+
+O Software é licenciado, nunca vendido. Todos os direitos de propriedade
+intelectual sobre o Software permanecem com o Autor, inclusive sobre
+modificações feitas pelo Licenciado nos termos da cláusula 2.2.
+
+
+5. DADOS DO LICENCIADO
+
+O Software é executado inteiramente na Instalação do Licenciado. Faturas,
+leituras, valores e demais dados processados permanecem no Home Assistant
+do Licenciado, que é o único controlador desses dados. O Autor não os
+recebe, não os armazena e não tem acesso a eles.
+
+
+6. AUSÊNCIA DE GARANTIA
+
+O SOFTWARE É FORNECIDO "NO ESTADO EM QUE SE ENCONTRA", SEM GARANTIA DE
+QUALQUER NATUREZA, EXPRESSA OU IMPLÍCITA, INCLUINDO, SEM LIMITAÇÃO,
+GARANTIAS DE COMERCIABILIDADE, ADEQUAÇÃO A FINALIDADE ESPECÍFICA E NÃO
+VIOLAÇÃO.
+
+O Software apresenta estimativas, projeções e comparações de consumo e de
+custo de energia. Tais resultados têm caráter informativo e não
+substituem a fatura emitida pela distribuidora, que prevalece para todos
+os fins.
+
+
+7. LIMITAÇÃO DE RESPONSABILIDADE
+
+Na máxima extensão permitida pela legislação aplicável, o Autor não
+responde por danos diretos, indiretos, incidentais, especiais ou
+consequentes, incluindo perda de dados, lucros cessantes ou interrupção
+de atividade, decorrentes do uso ou da impossibilidade de uso do
+Software.
+
+
+8. VIGÊNCIA E RESCISÃO
+
+8.1. Esta licença vigora a partir da entrega do Software e por prazo
+     indeterminado.
+
+8.2. O descumprimento de qualquer cláusula acarreta rescisão automática,
+     independentemente de notificação.
+
+8.3. Rescindida a licença, o Licenciado deve cessar o uso e apagar todas
+     as cópias do Software. Os dados do Licenciado, por serem dele,
+     permanecem em sua posse.
+
+
+9. FORO
+
+Fica eleito o foro da comarca de domicílio do Autor para dirimir
+controvérsias decorrentes desta licença, com renúncia a qualquer outro,
+por mais privilegiado que seja.
+
+
+Para obter licença, licenciar Instalações adicionais ou negociar
+condições diversas das previstas acima, contate o Autor.

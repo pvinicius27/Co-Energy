@@ -1,0 +1,32 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Energy Management",
+        "description": "Leave both fields blank to start from scratch: units, sensors and distribution are created from the dashboard itself. The fields are here for those who already keep the models in files and want to start from them.",
+        "data": {
+          "model_path": "Energy model (optional)",
+          "financial_model_path": "Financial model (optional)"
+        }
+      },
+      "reconfigure": {
+        "title": "Energy Management",
+        "description": "Change or clear the file paths. Clearing a field makes the integration stop reading that file and use only what is already stored in Home Assistant.",
+        "data": {
+          "model_path": "Energy model (optional)",
+          "financial_model_path": "Financial model (optional)"
+        }
+      }
+    },
+    "error": {
+      "model_path_required": "Enter the path to the energy model.",
+      "model_path_invalid": "This model could not be loaded. Check the path and whether the file is a valid energy model.",
+      "financial_model_path_invalid": "The financial model could not be loaded. Check the path, or leave the field blank to continue without it."
+    },
+    "abort": {
+      "single_instance_allowed": "Energy Management is already configured.",
+      "invalid_configuration": "The existing configuration.yaml setup could not be loaded.",
+      "reconfigure_successful": "Paths updated."
+    }
+  }
+}

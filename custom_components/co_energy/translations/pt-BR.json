@@ -1,0 +1,32 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Gestão de Energia",
+        "description": "Deixe os dois campos em branco para começar do zero: as unidades, os sensores e o rateio são criados pela própria dashboard. Os campos existem para quem já tem os modelos em arquivo e quer partir deles.",
+        "data": {
+          "model_path": "Modelo de energia (opcional)",
+          "financial_model_path": "Modelo financeiro (opcional)"
+        }
+      },
+      "reconfigure": {
+        "title": "Gestão de Energia",
+        "description": "Mude ou apague os caminhos dos arquivos. Apagar um campo faz a integração deixar de ler aquele arquivo e passar a usar apenas o que já está guardado no Home Assistant.",
+        "data": {
+          "model_path": "Modelo de energia (opcional)",
+          "financial_model_path": "Modelo financeiro (opcional)"
+        }
+      }
+    },
+    "error": {
+      "model_path_required": "Informe o caminho do modelo de energia.",
+      "model_path_invalid": "Não foi possível carregar este modelo. Confira o caminho e se o arquivo é um modelo de energia válido.",
+      "financial_model_path_invalid": "Não foi possível carregar o modelo financeiro. Confira o caminho, ou deixe o campo em branco para seguir sem ele."
+    },
+    "abort": {
+      "single_instance_allowed": "A Gestão de Energia já está configurada.",
+      "invalid_configuration": "A configuração existente no configuration.yaml não pôde ser carregada.",
+      "reconfigure_successful": "Caminhos atualizados."
+    }
+  }
+}

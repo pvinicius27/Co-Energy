@@ -1,0 +1,75 @@
+# Gestão de Energia
+
+Integração para Home Assistant que acompanha energia em instalações com
+geração solar e mais de uma unidade consumidora: o que foi medido, o que a
+distribuidora faturou, e a diferença entre os dois — cada valor carregando a
+sua origem.
+
+## O que ela faz
+
+- **Lê a fatura em PDF** pelo navegador e guarda só os dados. O PDF não fica no
+  Home Assistant.
+- **Audita a distribuidora**: compara o que a fatura registrou com o que os
+  seus medidores mediram, no mesmo intervalo.
+- **Acompanha o rateio** entre as unidades beneficiárias, preservando o
+  histórico de quando a regra mudou.
+- **Calcula o retorno do investimento** solar, somando autoconsumo e crédito
+  rateado, e marca o ciclo em que o sistema se pagou.
+- **Separa o que é medido do que é estimado.** Todo valor carrega a origem:
+  oficial, medido, calculado, projetado ou estimado. Dado ausente aparece como
+  ausente, nunca como zero.
+
+## Requisitos
+
+- Home Assistant 2026.9 ou mais recente, com o Recorder ativo.
+- Medição no Home Assistant para as unidades que você quer auditar. Unidade sem
+  medidor continua funcionando pela fatura, e é apresentada como tal.
+- As faturas em PDF da distribuidora, no seu computador.
+
+## Instalação
+
+### Pelo HACS
+
+1. HACS → menu → **Repositórios personalizados**
+2. Cole a URL deste repositório, tipo **Integration**
+3. Instale e reinicie o Home Assistant
+
+### Manual
+
+1. Copie a pasta `custom_components/co_energy` para o `custom_components` da sua
+   instalação
+2. Reinicie o Home Assistant
+
+## Primeiros passos
+
+**Configurações → Dispositivos e serviços → Adicionar integração → Gestão de
+Energia.** Deixe os dois campos em branco: eles existem apenas para quem já tem
+os modelos em arquivo e quer partir deles.
+
+Pronto — **Gestão de Energia** aparece na barra lateral. Tudo o mais (unidades,
+sensores, rateio, tarifa, investimento e faturas) se configura ali, sem editar
+YAML.
+
+A tela também está disponível como cartão (`co-energy-overview-card-v6`) para
+quem prefere montá-la num painel próprio.
+
+## O que ela não faz
+
+- Não cria entidades novas nem duplica histórico. Ela lê o que já existe.
+- Não escreve na sua instalação elétrica nem comanda nada.
+- Não envia dado nenhum para fora. Tudo roda no seu Home Assistant.
+- Não substitui a fatura: os números dela são para conferir e entender, não
+  para contestar sozinho.
+
+## Seus dados
+
+Faturas, leituras e valores ficam no seu Home Assistant e em nenhum outro
+lugar. Remover a integração apaga o que ela guardou, inclusive as faturas e as
+fotos das unidades — o caminho de volta é o backup do Home Assistant, e a tela
+oferece exportar as faturas em JSON antes.
+
+## Licença
+
+Software proprietário. O uso depende de licença concedida pelo autor e vale
+para uma instalação. Redistribuir, revender ou publicar o código não é
+permitido. Veja [`LICENSE`](LICENSE).
