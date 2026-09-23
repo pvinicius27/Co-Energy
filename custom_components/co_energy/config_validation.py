@@ -24,12 +24,11 @@ ERROR_MODEL_INVALID = "model_path_invalid"
 ERROR_FINANCIAL_INVALID = "financial_model_path_invalid"
 
 
-#: Sugestão de caminho, não imposição: quem guarda o arquivo em outro lugar
-#: edita o campo. Fica na mesma pasta privada das cópias de fatura, e pelo
-#: mesmo motivo — ``www`` é servido como ``/local/``, sem login, e uma
-#: sugestão apontando para lá ensinaria quem instala a publicar a própria
-#: configuração na rede.
-SUGGESTED_FINANCIAL_PATH = "/config/co_energy/financial-model.yaml"
+#: Onde guardar o arquivo, para quem usa um. Não é sugerido em campo nenhum —
+#: a instalação nova começa sem arquivo —, mas é o caminho citado na
+#: documentação, e fica fora de ``www``: o que está lá é servido como
+#: ``/local/``, sem login.
+RECOMMENDED_CONFIG_FOLDER = "/config/co_energy"
 
 
 class ConfigValidationError(ValueError):
@@ -53,26 +52,27 @@ def clean_path(value: Any) -> str | None:
     return limpo or None
 
 
-def form_defaults(stored: Any = None, *, suggest: bool = True) -> dict[str, str]:
-    """O que cada campo mostra quando o formulário abre.
+def form_defaults(stored: Any = None) -> dict[str, str]:
+    """O que cada campo mostra quando o formulário abre: o que está guardado.
+
+    Os dois nascem VAZIOS. A tela diz "deixe os dois campos em branco para
+    começar do zero", e o financeiro chegava preenchido com um caminho
+    sugerido — para um arquivo que a instalação nova não tem. Quem clicasse
+    em Enviar sem mexer era recusado com ``financial_model_path_invalid``,
+    sobre um arquivo que nunca escolheu, na primeira ação da instalação.
+
+    Sugerir também não ajudava ninguém: quem já tem o arquivo digita o
+    caminho dele, que raramente é o sugerido.
 
     Mora aqui, e não no fluxo, porque é regra — e porque assim pode ser
     testada sem o Home Assistant: ``voluptuous`` nem existe fora dele, então
     nada de ``config_flow`` é importável num teste.
-
-    ``suggest`` vale só na instalação. Ao reconfigurar, o campo mostra
-    exatamente o que está guardado, inclusive vazio: quem apagou o caminho
-    para deixar de depender do arquivo veria a sugestão de volta no campo e
-    concluiria que a mudança não pegou — ou salvaria de novo e voltaria a
-    depender do arquivo sem perceber.
     """
     guardado = stored if isinstance(stored, dict) else {}
-    padrao_financeiro = SUGGESTED_FINANCIAL_PATH if suggest else ""
     return {
         CONF_MODEL_PATH: clean_path(guardado.get(CONF_MODEL_PATH)) or "",
         CONF_FINANCIAL_MODEL_PATH: (
-            clean_path(guardado.get(CONF_FINANCIAL_MODEL_PATH))
-            or padrao_financeiro
+            clean_path(guardado.get(CONF_FINANCIAL_MODEL_PATH)) or ""
         ),
     }
 

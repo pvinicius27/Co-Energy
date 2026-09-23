@@ -27,18 +27,18 @@ from .const import CONF_FINANCIAL_MODEL_PATH, CONF_MODEL_PATH, DOMAIN
 from .energy_model import load_energy_model
 from .financial_model import load_financial_model
 
-def _schema(
-    defaults: dict[str, Any] | None = None, *, sugerir: bool = True
-) -> vol.Schema:
+def _schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     """Formulário com o que já foi digitado preservado.
 
     Errar um caminho não pode apagar o outro: quem digitou dois caminhos
     longos e errou uma letra em um deles não deveria redigitar os dois.
 
     Qual valor cada campo mostra é decidido por ``form_defaults``, em
-    ``config_validation`` — lá a decisão é testável, aqui não seria.
+    ``config_validation`` — lá a decisão é testável, aqui não seria. Os dois
+    nascem vazios: a instalação nova começa do zero, e sugerir um caminho
+    fazia o primeiro Enviar ser recusado por um arquivo que ninguém escolheu.
     """
-    mostrar = form_defaults(defaults, suggest=sugerir)
+    mostrar = form_defaults(defaults)
     # `suggested_value`, e NUNCA `default`. Ao apagar um campo de texto, o
     # frontend do Home Assistant omite a chave em vez de mandar string vazia,
     # e `default` faria o voluptuous repor o valor anterior: apagar o caminho
@@ -124,7 +124,7 @@ class CoEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=_schema(user_input or dict(entrada.data), sugerir=False),
+            data_schema=_schema(user_input or dict(entrada.data)),
             errors=errors,
         )
 

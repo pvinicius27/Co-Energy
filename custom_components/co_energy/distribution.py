@@ -163,8 +163,9 @@ def validate_unit_ids(unit_ids: Any) -> tuple[str, ...]:
     if isinstance(unit_ids, (str, bytes)) or not isinstance(unit_ids, Sequence):
         raise DistributionValidationError("unit_ids must be a sequence of unit IDs")
     expected = tuple(unit_ids)
-    if not expected:
-        raise DistributionValidationError("unit_ids must be non-empty")
+    # Lista vazia e legitima: a instalacao acabou de subir e ninguem criou
+    # unidade ainda. Recusar aqui fazia a integracao nem carregar. O que nao
+    # se aceita e lista com item invalido ou repetido, abaixo.
     for unit_id in expected:
         if not isinstance(unit_id, str) or not unit_id.strip():
             raise DistributionValidationError("unit_ids must be non-empty strings")
@@ -199,8 +200,15 @@ def validate_storage_data(
     if isinstance(data.revision, bool) or not isinstance(data.revision, int) or data.revision < 1:
         raise DistributionValidationError("revision must be a positive integer")
     validate_timezone(data.timezone)
-    if not isinstance(data.rules, tuple) or not data.rules:
-        raise DistributionValidationError("rules must be a non-empty tuple")
+    if not isinstance(data.rules, tuple):
+        raise DistributionValidationError("rules must be a tuple")
+    # Sem regra nenhuma so vale enquanto nao ha unidade: o rateio ainda nao
+    # tem o que ratear. Com unidade declarada, uma linha do tempo vazia seria
+    # perda de historico, nao instalacao nova.
+    if not data.rules and expected:
+        raise DistributionValidationError(
+            "rules must be a non-empty tuple when there are units"
+        )
 
     normalized: list[ConfiguredDistributionRule] = []
     seen_ids: set[str] = set()
@@ -280,6 +288,16 @@ def distribution_from_seed(
             "configured units are unavailable in the energy model"
         ) from error
     configuration = model.get("credit_distribution")
+    if configuration is None and not unit_ids:
+        # Instalação que ainda não criou unidade nenhuma não tem rateio a
+        # declarar, e isso não é erro: é o estado correto de quem acabou de
+        # instalar. Exigir o histórico aqui vinha de quando o modelo chegava
+        # pronto do YAML — e fazia a integração nem subir numa instalação
+        # nova, com "Could not bootstrap configured distribution Store".
+        #
+        # A linha do tempo nasce vazia e ganha a primeira regra quando a
+        # primeira unidade existir.
+        return DistributionStorageData(1, timezone or FALLBACK_TIMEZONE, ())
     if not isinstance(configuration, Mapping):
         raise DistributionValidationError("credit_distribution must be a mapping")
     history = configuration.get("history")
