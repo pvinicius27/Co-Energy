@@ -114,3 +114,23 @@ async def async_register_panel(hass: Any) -> None:
         return
 
     hass.data[_PANEL_REGISTERED] = True
+
+
+def async_remove_panel(hass: Any) -> None:
+    """Tira a Gestão de Energia da barra lateral.
+
+    Sem isto, remover a integração deixava o item lá: clicável, levando a uma
+    tela que não existe mais. Quem desinstalou continuava vendo o produto na
+    barra, e a única saída era reiniciar o Home Assistant.
+
+    A marca sai junto — senão, reinstalar não registraria o painel de novo e
+    a integração subiria sem tela, sem nada explicando.
+    """
+    if not hass.data.pop(_PANEL_REGISTERED, None):
+        return
+    try:
+        from homeassistant.components import frontend
+
+        frontend.async_remove_panel(hass, PANEL_URL_PATH)
+    except Exception:  # noqa: BLE001 - descarregar não pode falhar por isto
+        _LOGGER.warning("Could not remove the CoEnergy panel")

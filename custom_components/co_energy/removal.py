@@ -16,6 +16,7 @@ arquivo que alguém tenha posto na mesma pasta não é nosso e fica.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import logging
 from pathlib import Path
 from typing import Any
@@ -94,7 +95,27 @@ def remove_empty_dir(caminho: Path) -> None:
         pass
 
 
-async def async_remove_all_data(hass: Any, unit_ids: tuple[str, ...]) -> None:
+def unit_ids_from_stored_model(raw: Any) -> tuple[str, ...]:
+    """As unidades do modelo como o Store o guardou.
+
+    Vêm daqui, e não do runtime: quando a remoção roda, o Home Assistant já
+    chamou ``async_unload_entry``, que descartou ``hass.data[DOMAIN]``. Ler o
+    runtime ali devolvia nada, nenhuma foto casava com ``<unidade>.*``, e a
+    limpeza falhava em silêncio — deixando as fotos das unidades no disco de
+    quem achou que tinha removido tudo.
+    """
+    if not isinstance(raw, Mapping):
+        return ()
+    modelo = raw.get("model")
+    if not isinstance(modelo, Mapping):
+        return ()
+    unidades = modelo.get("units")
+    if not isinstance(unidades, Mapping):
+        return ()
+    return tuple(u for u in unidades if isinstance(u, str) and u.strip())
+
+
+async def async_remove_all_data(hass: Any) -> None:
     """Apaga o storage, as cópias de fatura e as fotos das unidades.
 
     Nunca levanta: remover a entrada não pode falhar por causa da limpeza. O
@@ -103,6 +124,17 @@ async def async_remove_all_data(hass: Any, unit_ids: tuple[str, ...]) -> None:
     """
     try:
         from homeassistant.helpers.storage import Store
+
+        # O modelo é lido ANTES de qualquer remoção: é ele que diz de quem é
+        # cada foto, e depois de apagá-lo não há mais como saber quais
+        # arquivos da pasta pertenciam a esta instalação.
+        try:
+            unit_ids = unit_ids_from_stored_model(
+                await Store(hass, 1, MODEL_KEY).async_load()
+            )
+        except Exception:  # noqa: BLE001 - sem o modelo, as fotos ficam
+            _LOGGER.warning("Could not read the model before removing it")
+            unit_ids = ()
 
         for chave in STORAGE_KEYS:
             try:

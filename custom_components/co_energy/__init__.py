@@ -7,11 +7,10 @@ import logging
 from typing import Any
 
 from .const import DOMAIN
-from .energy_model import EnergyModelError, get_unit_ids
 from .http_api import async_register_http_api
-from .panel import async_register_panel
+from .panel import async_register_panel, async_remove_panel
 from .removal import async_remove_all_data
-from .runtime import CoEnergyRuntime, CoEnergyRuntimeError, async_build_runtime
+from .runtime import CoEnergyRuntimeError, async_build_runtime
 from .websocket_api import async_register_websocket_api
 
 _LOGGER = logging.getLogger(__name__)
@@ -87,7 +86,12 @@ async def async_unload_entry(hass: Any, entry: Any) -> bool:
     Os comandos WebSocket ficam registrados: o Home Assistant não oferece como
     desfazer esse registro, e eles respondem "runtime indisponível" enquanto
     não houver runtime — que é a resposta correta.
+
+    O painel, ao contrário, sai. Ele é um item de menu clicável: deixá-lo para
+    trás levava quem desinstalou a uma tela que não existe mais. Recarregar a
+    entrada o registra de novo, porque ``async_setup_entry`` roda em seguida.
     """
+    async_remove_panel(hass)
     hass.data.pop(DOMAIN, None)
     return True
 
@@ -105,15 +109,9 @@ async def async_remove_entry(hass: Any, entry: Any) -> None:
     remove acredita que removeu, e o dado pessoal fica no disco de alguém que
     não sabe que ficou.
 
-    As unidades são lidas ANTES de o storage sair, porque é o modelo que diz
-    de quem é cada foto: depois de apagá-lo não há mais como saber quais
-    arquivos da pasta pertenciam a esta instalação.
+    As unidades saem do STORAGE, não do runtime: quando isto roda, o Home
+    Assistant já chamou ``async_unload_entry``, que descartou
+    ``hass.data[DOMAIN]``. Ler o runtime aqui devolvia nada, e as fotos das
+    unidades ficavam no disco de quem achou que tinha removido tudo.
     """
-    runtime = hass.data.get(DOMAIN)
-    unidades: tuple[str, ...] = ()
-    if isinstance(runtime, CoEnergyRuntime):
-        try:
-            unidades = get_unit_ids(runtime.model)
-        except EnergyModelError:
-            unidades = ()
-    await async_remove_all_data(hass, unidades)
+    await async_remove_all_data(hass)
