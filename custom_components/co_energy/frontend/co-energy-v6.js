@@ -2976,11 +2976,17 @@
       const request = (async () => {
         try {
           const response = await requestHass.callWS({ type: UNITS_COMMAND });
+          // Lista VAZIA e resposta valida, nao contrato quebrado: e o que
+          // toda instalacao nova devolve. Recusa-la aqui deixava o catalogo
+          // em null, e `_isEmptyInstallation` — que exige um array vazio —
+          // nunca era verdadeiro. Todo o mecanismo de primeira instalacao
+          // existia e nunca disparava: a tela de boas-vindas nao aparecia, as
+          // abas sem conteudo continuavam clicaveis, e quem instalou caia
+          // numa Visao geral vazia sem saber por onde comecar.
           if (
             !response
             || response.api_version !== API_VERSION
             || !Array.isArray(response.data?.units)
-            || response.data.units.length === 0
           ) {
             throw new Error("Contrato do catálogo de unidades incompatível.");
           }
@@ -6490,7 +6496,12 @@
         .filter((item) => item.severity === "critical").length;
       let tom = "ok";
       let texto = "Operacional";
-      if (carregando) { tom = "info"; texto = "Sincronizando"; }
+      // Sem unidade nenhuma nao ha o que supervisionar, e dizer "Operacional"
+      // e a mentira mais facil de contar: nada falhou porque nada rodou. Quem
+      // acabou de instalar lia o selo verde e procurava por que a tela estava
+      // vazia.
+      if (this._isEmptyInstallation) { tom = "info"; texto = "Aguardando configuração"; }
+      else if (carregando) { tom = "info"; texto = "Sincronizando"; }
       else if (falha) { tom = "critical"; texto = "Falha de leitura"; }
       else if (criticos > 0) { tom = "critical"; texto = `${criticos} crítico${criticos > 1 ? "s" : ""}`; }
       const selo = this._element("div", `system-status ${tom}`);
@@ -21593,6 +21604,16 @@
 
     _conteudo() {
       if (!this._carta) {
+        // Como CARTAO, a tela vive dentro de um painel do Lovelace e rola por
+        // baixo do cabecalho do Home Assistant — por isso tudo que e sticky
+        // reserva `--header-height`, 56px por padrao. Como PAINEL nao ha
+        // cabecalho nenhum acima: a reserva vira deslocamento, e a barra
+        // sticky passa a comer o topo do conteudo.
+        //
+        // Declarar aqui corrige os cinco lugares que dependem da medida de
+        // uma vez, e deixa o cartao intacto para quem o usa numa aba propria.
+        this.style.setProperty("--header-height", "0px");
+        this.style.display = "block";
         this._carta = document.createElement(CARD_TAG);
         // O cartao exige configuracao, e como painel nao ha painel do
         // Lovelace para escreve-la: vale o mesmo exemplo que o Home
