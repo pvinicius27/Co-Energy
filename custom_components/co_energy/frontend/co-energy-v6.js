@@ -2948,6 +2948,32 @@
       return Array.isArray(this._unitCatalog) && this._unitCatalog.length === 0;
     }
 
+    // Enquanto o catalogo nao chegou, "nao sei" nao e "tem unidades". As oito
+    // abas apareciam, a pessoa clicava numa delas, e so entao o aviso de ir
+    // para a Configuracao surgia por cima — atraso que parecia falha. Sem
+    // catalogo, a tela mostra o que ja e certo e espera o resto.
+    get _catalogPending() {
+      return !Array.isArray(this._unitCatalog);
+    }
+
+    // Os nomes do que a unidade mede, sem repetir e comecando com maiuscula.
+    // O backend rotula em minuscula porque os rotulos tambem aparecem no meio
+    // de frases; aqui eles abrem um item de lista, e "tensão, corrente" lido
+    // depois do nome da unidade parece continuacao da frase anterior.
+    _unitMeasuredNames(unidade) {
+      const rotulos = [];
+      for (const grupo of [unidade?.metrics, unidade?.readings]) {
+        if (!Array.isArray(grupo)) continue;
+        for (const item of grupo) {
+          const bruto = typeof item?.label === "string" ? item.label.trim() : "";
+          if (!bruto) continue;
+          const nome = bruto.charAt(0).toUpperCase() + bruto.slice(1);
+          if (!rotulos.includes(nome)) rotulos.push(nome);
+        }
+      }
+      return rotulos;
+    }
+
     get _hasGeneration() {
       return !Array.isArray(this._unitCatalog) || this._generatorUnit !== null;
     }
@@ -6271,7 +6297,10 @@
       const main = this._element("div", "main-area");
       // A aba guardada pode ser uma que deixou de existir — o painel de quem
       // acabou de instalar abre na Visao geral por padrao.
-      if (this._isEmptyInstallation && this._page !== "configuracao") {
+      if (
+        (this._isEmptyInstallation || this._catalogPending)
+        && this._page !== "configuracao"
+      ) {
         this._page = "configuracao";
       }
       main.append(this._renderTopBar(data));
@@ -6333,7 +6362,10 @@
       // Sem nenhuma unidade nao ha o que ver em lugar nenhum: as outras abas
       // abririam vazias e a pessoa procuraria um problema que nao existe. Elas
       // voltam sozinhas assim que a primeira unidade e criada.
-      if (this._isEmptyInstallation) {
+      // Catalogo ainda nao chegou conta como vazio de proposito: mostrar as
+      // oito e recolher depois era o atraso que parecia falha. Uma aba a
+      // mais aparecendo em seguida incomoda menos que sete sumindo.
+      if (this._isEmptyInstallation || this._catalogPending) {
         return [["configuracao", "mdi:cog-outline", "Configuração"]];
       }
       return [
@@ -8502,12 +8534,17 @@
       const quantos = Number(unidade.sensor_count ?? 0);
       const semMedidor = unidade.measured === false;
       if (semMedidor) resumo.push("Só pela fatura");
+      else if (!quantos) resumo.push("Sem sensor");
       else {
-        resumo.push(quantos
-          ? `${quantos} ${quantos === 1 ? "sensor" : "sensores"}`
-          : "Sem sensor");
+        // O que ela mede, pelo nome. "3 sensores" obriga a abrir a unidade
+        // para descobrir QUAIS — e a pergunta de quem olha a lista e
+        // exatamente essa. Com os nomes, a lista se le sem abrir nada.
+        const nomes = this._unitMeasuredNames(unidade);
+        resumo.push(nomes.length
+          ? nomes.join(", ")
+          : `${quantos} ${quantos === 1 ? "sensor" : "sensores"}`);
       }
-      if (unidade.role === ROLE_GENERATOR) resumo.push("Gera Energia");
+      if (unidade.role === ROLE_GENERATOR) resumo.push("Gera energia");
       texto.append(this._element("span", "settings-unit-summary", resumo.join(" · ")));
       faixa.append(texto);
 

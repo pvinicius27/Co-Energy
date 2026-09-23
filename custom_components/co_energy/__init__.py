@@ -87,11 +87,13 @@ async def async_unload_entry(hass: Any, entry: Any) -> bool:
     desfazer esse registro, e eles respondem "runtime indisponível" enquanto
     não houver runtime — que é a resposta correta.
 
-    O painel, ao contrário, sai. Ele é um item de menu clicável: deixá-lo para
-    trás levava quem desinstalou a uma tela que não existe mais. Recarregar a
-    entrada o registra de novo, porque ``async_setup_entry`` roda em seguida.
+    O painel TAMBÉM fica, e isto não é descuido: recarregar a entrada passa
+    por aqui, e toda gravação do modelo — criar unidade, apontar sensor,
+    trocar foto — recarrega. Tirar o painel aqui fazia o Home Assistant ver a
+    tela aberta sumir e mandar a pessoa para a Visão geral dele, no meio da
+    configuração. Quem sai é ``async_remove_entry``, que só roda quando a
+    integração é removida de verdade.
     """
-    async_remove_panel(hass)
     hass.data.pop(DOMAIN, None)
     return True
 
@@ -113,5 +115,9 @@ async def async_remove_entry(hass: Any, entry: Any) -> None:
     Assistant já chamou ``async_unload_entry``, que descartou
     ``hass.data[DOMAIN]``. Ler o runtime aqui devolvia nada, e as fotos das
     unidades ficavam no disco de quem achou que tinha removido tudo.
+
+    O painel sai aqui, e não no descarregamento: recarregar a entrada também
+    descarrega, e toda gravação do modelo recarrega.
     """
+    async_remove_panel(hass)
     await async_remove_all_data(hass)
