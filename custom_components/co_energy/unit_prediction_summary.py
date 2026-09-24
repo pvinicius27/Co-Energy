@@ -25,6 +25,10 @@ class UnitPredictionSummary:
     target_start: datetime
     target_end: datetime
     predicted_value: float | None
+    # Só na estimativa pela fatura: de qual fatura veio o ritmo, quanto por
+    # dia e por quantos dias foi multiplicado. É o que deixa a tela mostrar a
+    # conta em vez de um número sem origem — ela não vem de medição.
+    basis: dict | None = None
 
 
 def build_unit_prediction_summary(
@@ -52,5 +56,10 @@ def build_unit_prediction_summary(
             target_start=prediction.estimate.target_period.start,
             target_end=prediction.estimate.target_period.end,
             predicted_value=prediction.estimate.estimated_value,
+            basis={
+                "billing_reference": prediction.billing_reference,
+                "average_daily_value": prediction.estimate.average_daily_value,
+                "target_days": prediction.estimate.target_days_equivalent,
+            },
         )
     raise UnitPredictionSummaryError("prediction must be a supported unit prediction")

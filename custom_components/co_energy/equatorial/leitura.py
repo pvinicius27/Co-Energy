@@ -842,7 +842,7 @@ def extrair_datas_leituras_avancado(texto: str, texto_unico: str) -> Dict[str, A
         dados["dias_leitura"] = match_principal.group(3)
         dados["proxima_leitura"] = match_principal.group(4)
 
-    # Exemplo: 22/05/2026 1234567890123 MAI/2026 09/06/2026 R$**********66,62
+    # Exemplo: 22/05/2026 1234567890123 MAI/2026 09/06/2026 R$**********12,34
     match_rodape = re.search(
         rf"({padrao_data})\s+\d{{10,}}\s+({meses}/20\d{{2}})\s+({padrao_data})\s+R\$\s*\*+",
         t,

@@ -211,15 +211,15 @@ def add_unit(
 def remove_unit(model: Mapping[str, Any], unit_id: str) -> dict[str, Any]:
     """Return the model without one unit.
 
-    Recusa remover a ultima: um modelo sem unidade nenhuma nao e valido, e
-    deixar a interface chegar ate a gravacao para so entao falhar seria pior
-    do que recusar aqui.
+    Remover a ULTIMA e permitido. Ate a instalacao poder nascer vazia, um
+    modelo sem unidade nao era valido, e esta funcao recusava — com um erro em
+    ingles que a tela engolia: quem tentava excluir a unica unidade clicava,
+    confirmava, e nada acontecia. Hoje vazio e o estado de quem acabou de
+    instalar, e voltar a ele e so recomecar.
     """
     unidades = _unidades(model)
     if unit_id not in unidades:
         raise ModelBuilderError(f"unknown unit: {unit_id!r}")
-    if len(unidades) == 1:
-        raise ModelBuilderError("the last unit cannot be removed")
 
     novo = _copiar(model)
     del novo["units"][unit_id]
@@ -253,6 +253,9 @@ def set_unit_role(
 
     novo = _copiar(model)
     novo["units"][unit_id]["role"] = role
+    # O que a unidade mede, calcula, audita e prevê acompanha o papel.
+    _accommodate_series_to_role(novo["units"][unit_id])
+    reconcile_unit_capabilities(novo["units"][unit_id])
     _validar(novo)
     return novo
 
@@ -335,6 +338,43 @@ def _available_metrics(unit: Mapping[str, Any]) -> set[str]:
         if isinstance(bloco, Mapping):
             disponiveis.update(bloco)
     return disponiveis
+
+
+#: Onde ficam as séries que o papel atual da unidade não mede. Nenhum
+#: cálculo, gráfico ou auditoria lê esta chave — só ``set_unit_role`` a usa,
+#: para devolver as séries quando o papel volta.
+DORMANT_SERIES_KEY = "dormant_series"
+
+
+def _accommodate_series_to_role(unit: dict[str, Any]) -> None:
+    """Deixa em ``series`` só o que o papel mede; o resto fica guardado.
+
+    Trocar o papel não pode deixar as grandezas do papel anterior valendo:
+    uma unidade que deixou de gerar continuava com geração, exportação e
+    importação no modelo, e a previsão seguia o "consumo físico" calculado
+    delas — o card mostrava o consumo novo e a projeção antiga.
+
+    Apagar também seria errado: a série carrega o histórico das trocas de
+    medidor, e quem trocou o papel por engano perderia isso num clique.
+    Guardadas, voltam intactas quando o papel volta.
+    """
+    validas = set(metrics_for_role(unit.get("role")))
+    series = dict(unit.get("series") or {})
+    guardadas = dict(unit.get(DORMANT_SERIES_KEY) or {})
+    for metric_id in list(series):
+        if metric_id in MEASURABLE_METRICS and metric_id not in validas:
+            guardadas[metric_id] = series.pop(metric_id)
+    for metric_id in list(guardadas):
+        if metric_id in validas and metric_id not in series:
+            series[metric_id] = guardadas.pop(metric_id)
+    if series:
+        unit["series"] = series
+    else:
+        unit.pop("series", None)
+    if guardadas:
+        unit[DORMANT_SERIES_KEY] = guardadas
+    else:
+        unit.pop(DORMANT_SERIES_KEY, None)
 
 
 def reconcile_unit_capabilities(unit: dict[str, Any]) -> dict[str, Any]:
@@ -567,6 +607,35 @@ def swap_unit_meter(
         nova_fonte["label"] = label.strip()
     lista.append(nova_fonte)
     reconcile_unit_capabilities(novo["units"][unit_id])
+    _validar(novo)
+    return novo
+
+
+def set_current_source(
+    model: Mapping[str, Any], unit_id: str, metric_id: str, entity_id: str
+) -> dict[str, Any]:
+    """Corrigir o sensor ATUAL de uma série, sem tocar no histórico.
+
+    Para quem apontou o sensor errado: só a fonte vigente muda de entidade.
+    As fontes anteriores, com as datas de corte, ficam como estavam — são o
+    registro de quais medidores a unidade já teve. Registrar uma troca nova,
+    com data, é ``swap_unit_meter``.
+    """
+    unidades = _unidades(model)
+    if unit_id not in unidades:
+        raise ModelBuilderError(f"unknown unit: {unit_id!r}")
+    if not isinstance(entity_id, str) or not entity_id.strip():
+        raise ModelBuilderError("entity_id must be a non-empty string")
+    series = unidades[unit_id].get("series")
+    if not isinstance(series, Mapping) or metric_id not in series:
+        raise ModelBuilderError(f"{unit_id} does not measure {metric_id!r}")
+    fontes = series[metric_id].get("sources")
+    if not isinstance(fontes, list) or not fontes:
+        raise ModelBuilderError(f"{metric_id} has no source to correct")
+
+    novo = _copiar(model)
+    lista = novo["units"][unit_id]["series"][metric_id]["sources"]
+    lista[-1] = {**lista[-1], "entity_id": entity_id.strip()}
     _validar(novo)
     return novo
 

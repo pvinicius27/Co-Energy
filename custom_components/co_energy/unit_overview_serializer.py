@@ -262,6 +262,7 @@ def _serialize_prediction(value: Any, field: str) -> dict[str, Any]:
         ),
         "target_end": _serialize_datetime(value.target_end, f"{field}.target_end"),
         "predicted_value": value.predicted_value,
+        "basis": dict(value.basis) if value.basis is not None else None,
     }
 
 

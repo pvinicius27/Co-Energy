@@ -2,16 +2,55 @@
   "config": {
     "step": {
       "user": {
-        "title": "Energy Management",
-        "description": "Leave both fields blank to start from scratch: units, sensors and distribution are created from the dashboard itself. The fields are here for those who already keep the models in files and want to start from them.",
+        "title": "Energy Management — first unit",
+        "description": "Register the first unit: a house, a flat, a shop. You can add more next, and everything can be changed later under Configure on the integration page.",
         "data": {
-          "model_path": "Energy model (optional)",
-          "financial_model_path": "Financial model (optional)"
+          "nome": "Unit name",
+          "gera": "This unit generates energy (has solar panels)",
+          "tem_medidor": "This unit has a meter in Home Assistant"
+        },
+        "data_description": {
+          "tem_medidor": "Untick if the unit is only followed through the utility bill. It shows official data and needs no sensor."
+        }
+      },
+      "unidade_outra": {
+        "title": "Another unit",
+        "description": "Register one more unit.",
+        "data": {
+          "nome": "Unit name",
+          "gera": "This unit generates energy (has solar panels)",
+          "tem_medidor": "This unit has a meter in Home Assistant"
+        },
+        "data_description": {
+          "tem_medidor": "Untick if the unit is only followed through the utility bill. It shows official data and needs no sensor."
+        }
+      },
+      "sensores_iniciais": {
+        "title": "Sensors of {unidade}",
+        "description": "{dica} Choose at least one sensor; anything left blank simply does not show. Energy sensors must be cumulative (kWh), like the ones used by the Home Assistant Energy dashboard.",
+        "data": {
+          "consumption_energy": "Consumption (kWh)",
+          "generation_energy": "Generation (kWh)",
+          "export_energy": "Export to the grid (kWh)",
+          "import_energy": "Import from the grid (kWh)",
+          "voltage": "Voltage (V) — optional",
+          "current": "Current (A) — optional",
+          "power": "Power (W) — optional",
+          "power_factor": "Power factor — optional",
+          "frequency": "Frequency (Hz) — optional"
+        }
+      },
+      "mais": {
+        "title": "Registered units",
+        "description": "Registered so far: {unidades}.",
+        "menu_options": {
+          "concluir": "Finish and open Energy Management",
+          "unidade_outra": "Register another unit"
         }
       },
       "reconfigure": {
-        "title": "Energy Management",
-        "description": "Change or clear the file paths. Clearing a field makes the integration stop reading that file and use only what is already stored in Home Assistant.",
+        "title": "Models from files",
+        "description": "Only for those starting from existing model files. Clearing a field makes the integration stop reading that file and use only what is stored in Home Assistant.",
         "data": {
           "model_path": "Energy model (optional)",
           "financial_model_path": "Financial model (optional)"
@@ -19,14 +58,183 @@
       }
     },
     "error": {
-      "model_path_required": "Enter the path to the energy model.",
+      "model_path_required": "Enter the energy model path.",
       "model_path_invalid": "This model could not be loaded. Check the path and whether the file is a valid energy model.",
-      "financial_model_path_invalid": "The financial model could not be loaded. Check the path, or leave the field blank to continue without it."
+      "financial_model_path_invalid": "The financial model could not be loaded. Check the path, or leave the field empty to continue without it.",
+      "name_required": "Give the unit a name.",
+      "sensor_required": "Choose at least one sensor. If the unit has no meter in Home Assistant, go back and untick that option.",
+      "sensor_refused": "One of the chosen sensors could not be used for this quantity.",
+      "second_generator": "Another unit already generates energy. Only one unit can generate: untick \"generates energy\" on it first.",
+      "unknown": "Could not save. Check the fields and try again."
     },
     "abort": {
-      "single_instance_allowed": "Energy Management is already configured.",
+      "single_instance_allowed": "Energy Management is already set up. To change something, use Configure on the integration page.",
       "invalid_configuration": "The existing configuration.yaml setup could not be loaded.",
       "reconfigure_successful": "Paths updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configure Energy Management",
+        "description": "What do you want to change? The panel refreshes by itself after saving.",
+        "menu_options": {
+          "unidade_nova": "Add a unit",
+          "unidade_editar": "Edit a unit (name, role, colour, picture)",
+          "sensores": "Add a sensor to a unit",
+          "rateio": "Credit distribution",
+          "tarifa": "Tariff",
+          "investimento": "Solar system investment",
+          "horario": "Reading boundary time",
+          "unidade_excluir": "Delete a unit"
+        }
+      },
+      "unidade_nova": {
+        "title": "Add a unit",
+        "description": "If it has a meter, the next screen asks for its sensors.",
+        "data": {
+          "nome": "Unit name",
+          "gera": "This unit generates energy (has solar panels)",
+          "tem_medidor": "This unit has a meter in Home Assistant"
+        },
+        "data_description": {
+          "tem_medidor": "Untick if the unit is only followed through the utility bill. It shows official data and needs no sensor."
+        }
+      },
+      "unidade_editar": {
+        "title": "Edit a unit",
+        "description": "Choose the unit.",
+        "data": {
+          "unidade": "Unit"
+        }
+      },
+      "unidade_dados": {
+        "title": "Edit a unit — {unidade}",
+        "description": "Renaming does not touch history. Changing whether the unit generates changes what it measures.",
+        "data": {
+          "nome": "Unit name",
+          "gera": "This unit generates energy (has solar panels)",
+          "tem_medidor": "This unit has a meter in Home Assistant",
+          "cor": "Colour in charts",
+          "foto": "Unit picture",
+          "remover_foto": "Remove the current picture"
+        },
+        "data_description": {
+          "tem_medidor": "Untick if the unit is only followed through the utility bill. It shows official data and needs no sensor.",
+          "foto": "{foto_info}"
+        }
+      },
+      "unidade_excluir": {
+        "title": "Delete a unit",
+        "description": "The unit leaves the panel and the calculations. Stored bills stay stored, and the sensor history stays in Home Assistant.",
+        "data": {
+          "unidade": "Unit",
+          "confirmar": "Yes, delete this unit"
+        }
+      },
+      "sensores": {
+        "title": "Add a sensor to a unit",
+        "description": "Choose the unit.",
+        "data": {
+          "unidade": "Unit"
+        }
+      },
+      "sensores_unidade": {
+        "title": "Add a sensor to a unit — {unidade}",
+        "description": "{dica} Each field is the CURRENT sensor. Leave blank what does not exist: it disappears from the panel instead of showing empty.",
+        "data": {
+          "consumption_energy": "Consumption (kWh)",
+          "generation_energy": "Generation (kWh)",
+          "export_energy": "Export to the grid (kWh)",
+          "import_energy": "Import from the grid (kWh)",
+          "voltage": "Voltage (V) — optional",
+          "current": "Current (A) — optional",
+          "power": "Power (W) — optional",
+          "power_factor": "Power factor — optional",
+          "frequency": "Frequency (Hz) — optional"
+        },
+        "sections": {
+          "medidor_anterior": {
+            "name": "Previous meter (meter replacement)",
+            "description": "Use when the physical meter was replaced: enter which sensor was used before and until when. Before that date the previous sensor counts; from it on, the current one.",
+            "data": {
+              "grandeza": "Quantity",
+              "sensor_anterior": "Previous sensor",
+              "usado_ate": "Used until"
+            },
+            "data_description": {
+              "usado_ate": "The cut falls on the full hour.\n\n**Previous meters already recorded:** {historico}"
+            }
+          }
+        }
+      },
+      "rateio": {
+        "title": "Credit distribution",
+        "description": "{situacao} How much of the surplus energy goes to each unit; they must add up to 100%.",
+        "data": {
+          "a_partir_de": "From (optional)"
+        },
+        "data_description": {
+          "a_partir_de": "Blank, the new distribution applies from now; with a future date, it is scheduled. Earlier months keep the distribution in force at the time.\n\n**History:** {historico}"
+        }
+      },
+      "tarifa": {
+        "title": "Tariff",
+        "description": "Energy tariff before taxes, per kWh, used to estimate the open cycle while the bill has not arrived. Each tariff applies from its date until the next one: entering a new one does not change earlier months.",
+        "data": {
+          "vigencia": "Applies from",
+          "valor": "Tariff (per kWh)"
+        },
+        "data_description": {
+          "valor": "Entered: {atuais}. To delete one, pick its date and leave the value blank."
+        }
+      },
+      "investimento": {
+        "title": "Solar system investment",
+        "description": "How much the solar system cost and when it was paid. This is what enables the payback.",
+        "data": {
+          "valor": "Amount paid",
+          "mes": "Payment date",
+          "limpar": "Delete the informed investment"
+        }
+      },
+      "horario": {
+        "title": "Reading boundary time",
+        "description": "The time of day used to align the bill reading dates with the sensors. Changing it recalculates all cycle history.",
+        "data": {
+          "horario": "Time"
+        }
+      }
+    },
+    "error": {
+      "name_required": "Give the unit a name.",
+      "sensor_required": "Choose at least one sensor. If the unit has no meter in Home Assistant, go back and untick that option.",
+      "sensor_refused": "One of the chosen sensors could not be used for this quantity.",
+      "second_generator": "Another unit already generates energy. Only one unit can generate: untick \"generates energy\" on it first.",
+      "unknown": "Could not save. Check the fields and try again.",
+      "shares_total": "The percentages must add up to exactly 100%.",
+      "share_invalid": "Each percentage must be between 0 and 100.",
+      "distribution_refused": "The distribution was not accepted. If one is already scheduled for the future it must take effect first; and scheduling needs a current distribution.",
+      "time_invalid": "Invalid time.",
+      "color_invalid": "Invalid colour.",
+      "image_invalid": "The picture could not be used. Send a JPG, PNG or WebP up to 12 MB.",
+      "swap_when_invalid": "Enter the date and time the meter was replaced.",
+      "swap_refused": "The swap was refused: the date must be after the current meter started, and the new sensor must differ from the current one.",
+      "period_invalid": "Enter the payment date.",
+      "amount_invalid": "Enter an amount greater than zero, e.g. 25000.00.",
+      "tariff_invalid": "Enter the tariff per kWh, greater than zero, e.g. 0.65.",
+      "history_keep": "This quantity already had a meter replaced and cannot be left without a sensor: the record of previous meters depends on it.",
+      "previous_incomplete": "To record the previous meter, fill in the three fields: quantity, previous sensor and until when.",
+      "previous_needs_current": "This quantity has no current sensor yet. Pick its current sensor in the field above.",
+      "previous_same": "The previous sensor is the same as the current one.",
+      "unit_without_meter": "This unit is marked as having no meter in Home Assistant. To add sensors, tick \"This unit has a meter in Home Assistant\" under Edit a unit.",
+      "confirm_required": "Tick the confirmation to delete.",
+      "unit_has_share": "This unit holds {percentual}% of the distribution. Set it to zero under \"Credit distribution\" before deleting it — otherwise the others stop adding up to 100%."
+    },
+    "abort": {
+      "runtime_unavailable": "The integration has not finished loading. Try again in a few seconds.",
+      "distribution_unavailable": "The stored distribution could not be read. See the Home Assistant log.",
+      "save_failed": "Could not save. See the Home Assistant log."
     }
   }
 }

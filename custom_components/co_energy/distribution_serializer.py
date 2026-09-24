@@ -166,6 +166,18 @@ def serialize_configured_distribution(
         )
     _datetime_iso(at, "at")
     validated = validate_storage_data(data, unit_ids)
+    if not validated.rules:
+        # Rateio pendente: duas ou mais unidades e ninguém informou ainda. É
+        # um estado, não uma falha — resolver aqui levantaria "nenhuma regra
+        # cobre o instante", e a tela diria "indisponível" em vez de pedir o
+        # rateio.
+        return {
+            "revision": _required_int(validated.revision, "data.revision"),
+            "timezone": _required_string(validated.timezone, "data.timezone"),
+            "current": None,
+            "scheduled": None,
+            "history": [],
+        }
     current_snapshot = resolve_distribution(validated, at, unit_ids)
 
     scheduled_rules = [

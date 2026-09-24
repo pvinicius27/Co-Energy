@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 import dataclasses
 import logging
+from pathlib import Path
 from typing import Any
 
 from .audit_serializer import AuditSerializationError, serialize_audit
@@ -255,6 +256,7 @@ from .distribution_serializer import (
     serialize_configured_distribution,
 )
 from .energy_coverage_quality import EnergyCoverageQualityError
+from .distribution_storage import share_blocking_removal
 from .energy_model import (
     EnergyModelError,
     get_coverage_quality_policy,
@@ -300,6 +302,7 @@ WS_TYPE_GET_INVOICES = "co_energy/get_invoices"
 WS_TYPE_SET_UC_OWNER = "co_energy/set_uc_owner"
 WS_TYPE_COMPARE_INVOICES = "co_energy/compare_invoices"
 WS_TYPE_USE_INVOICE_STORAGE = "co_energy/use_invoice_storage"
+WS_TYPE_DELETE_INVOICE = "co_energy/delete_invoice"
 WS_TYPE_EXPORT_INVOICES = "co_energy/export_invoices"
 WS_TYPE_GET_ENERGY_COVERAGE_AUDIT = "co_energy/get_energy_coverage_audit"
 WS_TYPE_GET_SELF_CONSUMPTION = "co_energy/get_self_consumption"
@@ -1337,7 +1340,10 @@ async def _async_handle_get_daily_balance(
         # adaptadores esperam para uma leitura de dia corrente.
         period = Period(start=start, end=now, mode="day")
 
-        gerador = _generator_unit_id(runtime)
+        # Sem geradora nao ha o que ratear, mas o consumo de hoje continua
+        # existindo — e e ele que o cartao mostra em "Hoje". Exigir a geradora
+        # aqui derrubava o balanco inteiro, e o consumo junto.
+        gerador = _generator_unit_id_or_none(runtime)
         consumo_id = _daily_consumption_logical_id(runtime.model, unit_id)
         consumed = None
         if consumo_id is not None:
@@ -1363,23 +1369,29 @@ async def _async_handle_get_daily_balance(
                 imported, calculate_self_consumption(generation, exported)
             )
 
-        generated_today = await _total_today(
-            hass, runtime.model, f"{gerador}.generation_energy",
-            period, statistics_period,
-        )
-        exported_today = await _total_today(
-            hass, runtime.model, f"{gerador}.export_energy",
-            period, statistics_period,
-        )
-        imported_today = await _total_today(
-            hass, runtime.model, f"{gerador}.import_energy",
-            period, statistics_period,
-        )
+        generated_today = exported_today = imported_today = None
+        if gerador is not None:
+            generated_today = await _total_today(
+                hass, runtime.model, f"{gerador}.generation_energy",
+                period, statistics_period,
+            )
+            exported_today = await _total_today(
+                hass, runtime.model, f"{gerador}.export_energy",
+                period, statistics_period,
+            )
+            imported_today = await _total_today(
+                hass, runtime.model, f"{gerador}.import_energy",
+                period, statistics_period,
+            )
         distributable = calculate_daily_distributable(exported_today, imported_today)
 
         share = None
         manager = runtime.distribution_manager
-        if manager is not None and manager.available:
+        # Rateio pendente deixa a parte desconhecida, e nao derruba o balanco.
+        if (
+            gerador is not None and manager is not None and manager.available
+            and manager.data.rules
+        ):
             snapshot = resolve_distribution(manager.data, now, manager.unit_ids)
             share = snapshot.shares.get(unit_id)
 
@@ -2150,6 +2162,23 @@ async def _async_save_model_change(
     return atualizado
 
 
+def _billing_file_exists(runtime: CoEnergyRuntime) -> bool:
+    """Se o arquivo do extrator antigo ainda existe no disco.
+
+    Ter o caminho declarado não basta: com o arquivo apagado, "Voltar para o
+    arquivo antigo" trocava a fonte para o nada, e o faturamento de todas as
+    unidades ficava vazio até alguém desfazer. Uma checagem de existência é
+    barata o bastante para rodar aqui.
+    """
+    caminho = runtime.billing_json_path
+    if not caminho:
+        return False
+    try:
+        return Path(caminho).is_file()
+    except OSError:
+        return False
+
+
 def _invoices_payload(runtime: CoEnergyRuntime) -> dict[str, Any]:
     """What the extraction screen shows: the stored bills and who owns each UC."""
     manager = runtime.invoice_manager
@@ -2178,7 +2207,7 @@ def _invoices_payload(runtime: CoEnergyRuntime) -> dict[str, Any]:
         # oferecer "voltar para o arquivo antigo" mandaria quem instalou agora
         # para uma fonte que não existe — deixando o faturamento vazio até ele
         # desfazer.
-        "has_file": bool(runtime.billing_json_path),
+        "has_file": _billing_file_exists(runtime),
         "bills": len(stored.faturas),
         "bills_without_uc": sem_uc,
         "updated_at": stored.updated_at.isoformat() if stored.updated_at else None,
@@ -2295,6 +2324,34 @@ async def _async_handle_use_invoice_storage(
     )
 
 
+async def _async_handle_delete_invoice(
+    hass: Any, connection: Any, msg: Mapping[str, Any], now: datetime
+) -> None:
+    """Apaga uma fatura guardada e responde com a lista atualizada.
+
+    A cópia JSON do dia é regravada: senão ela seguiria guardando a fatura
+    que a pessoa acabou de apagar por estar errada.
+    """
+    runtime = _invoice_runtime(hass, connection, msg)
+    if runtime is None:
+        return
+    try:
+        removida = await runtime.invoice_manager.async_remove(msg["digest"], now=now)
+    except InvoiceStorageError as error:
+        connection.send_error(msg["id"], "invoices_invalid", str(error))
+        return
+    if not removida:
+        connection.send_error(
+            msg["id"], "invoice_not_found", "Esta fatura já não está guardada."
+        )
+        return
+    if runtime.invoice_manager.stored.faturas:
+        await async_write_copy(hass, runtime.invoice_manager, runtime.model, now)
+    connection.send_result(
+        msg["id"], {"api_version": API_VERSION, "data": _invoices_payload(runtime)}
+    )
+
+
 async def _async_handle_export_invoices(
     hass: Any, connection: Any, msg: Mapping[str, Any]
 ) -> None:
@@ -2384,9 +2441,37 @@ async def _async_handle_set_unit(
     hass: Any, connection: Any, msg: Mapping[str, Any], now: datetime
 ) -> None:
     """Add, edit or remove one unit, and rebuild the integration."""
+    if msg.get("action") == "remove":
+        bloqueio = _removal_blocked_by_share(hass, msg.get("unit_id"))
+        if bloqueio is not None:
+            # Em portugues de proposito: a tela mostra a mensagem como veio,
+            # e esta e a unica recusa que a pessoa precisa entender para
+            # saber o que fazer em seguida.
+            connection.send_error(
+                msg["id"], "unit_has_distribution_share",
+                f"Esta unidade tem {format(bloqueio.normalize(), 'f')}% do "
+                "rateio. Leve o percentual dela a zero no rateio antes de "
+                "excluí-la — senão as outras deixam de somar 100%.",
+            )
+            return
     await _async_apply_model_change(
         hass, connection, msg, now, _model_change_from(msg)
     )
+
+
+def _removal_blocked_by_share(hass: Any, unit_id: Any) -> Decimal | None:
+    """O percentual que impede a saida da unidade, ou None."""
+    runtime = hass.data.get(DOMAIN)
+    if not isinstance(runtime, CoEnergyRuntime):
+        return None
+    manager = runtime.distribution_manager
+    if manager is None or not manager.available or not isinstance(unit_id, str):
+        return None
+    try:
+        unidades = get_unit_ids(runtime.declared_model or runtime.model)
+    except EnergyModelError:
+        return None
+    return share_blocking_removal(manager.data, unit_id, unidades)
 
 
 async def _async_handle_swap_unit_meter(
@@ -3010,6 +3095,20 @@ async def _async_handle_get_payback_projection(
                 "The solar investment has not been informed yet",
             )
             return
+        # Sem fatura nenhuma tambem nao e falha: o payback soma a economia
+        # que as faturas mostram, e a pessoa precisa saber que e isso que
+        # falta — nao ler "indisponivel, verifique a configuracao".
+        faturas = runtime.invoice_manager
+        if not (
+            (faturas is not None and faturas.stored.faturas)
+            or runtime.billing_json_path
+        ):
+            connection.send_error(
+                msg["id"],
+                "payback_billing_missing",
+                "No bill has been read yet",
+            )
+            return
         document = await _async_billing_document(runtime, executor)
         cycles = get_billing_cycles(
             runtime.model, document, _generator_unit_id(runtime), now
@@ -3346,6 +3445,14 @@ def async_register_websocket_api(hass: Any) -> None:
         await _async_handle_export_invoices(hass, connection, msg)
 
     @websocket_api.websocket_command({
+        vol.Required("type"): WS_TYPE_DELETE_INVOICE,
+        vol.Required("digest"): str,
+    })
+    @websocket_api.async_response
+    async def websocket_delete_invoice(hass, connection, msg) -> None:
+        await _async_handle_delete_invoice(hass, connection, msg, dt_util.now())
+
+    @websocket_api.websocket_command({
         vol.Required("type"): WS_TYPE_GET_DAILY_BALANCE,
         vol.Required("unit_id"): vol.All(str, vol.Match(r".*\S.*")),
         vol.Optional(
@@ -3555,4 +3662,5 @@ def async_register_websocket_api(hass: Any) -> None:
     websocket_api.async_register_command(hass, websocket_compare_invoices)
     websocket_api.async_register_command(hass, websocket_use_invoice_storage)
     websocket_api.async_register_command(hass, websocket_export_invoices)
+    websocket_api.async_register_command(hass, websocket_delete_invoice)
     websocket_api.async_register_command(hass, websocket_get_data_health)

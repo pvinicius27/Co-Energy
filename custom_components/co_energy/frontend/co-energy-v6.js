@@ -59,6 +59,7 @@
   const INVOICES_OWNER_COMMAND = "co_energy/set_uc_owner";
   const INVOICES_COMPARE_COMMAND = "co_energy/compare_invoices";
   const INVOICES_USE_COMMAND = "co_energy/use_invoice_storage";
+  const INVOICE_DELETE_COMMAND = "co_energy/delete_invoice";
   const INVOICES_EXPORT_COMMAND = "co_energy/export_invoices";
 
   // SHA-256 de um arquivo, para saber antes de enviar se ele ja foi lido. O
@@ -323,6 +324,10 @@
       // sua mais recente.
       this._billingReferenceChosen = false;
       this._billingCapabilityPending = new Set();
+      // Unidades em que a pessoa escolheu o modo do grafico: ali o padrao
+      // "ano" da unidade so com fatura nao se impoe de novo.
+      this._historyModeChosen = new Set();
+      this._historyModeAntesDoPadrao = null;
       this._cyclesCatalogCache = new Map();
       this._cyclesCatalogErrors = new Map();
       this._cyclesCatalogInFlight = new Map();
@@ -1303,15 +1308,49 @@
       if (unit !== this._selectedUnit) return;
       this._reconcileBillingReference(unit);
       if (!this._unitIsBillingOnly(unit)) {
+        // Voltando de uma unidade so com fatura: o modo que ela impos (ano)
+        // nao pode seguir para a unidade com sensor, que estava em outro.
+        if (this._historyModeAntesDoPadrao) {
+          this._historyMode = this._historyModeAntesDoPadrao;
+          this._historyModeAntesDoPadrao = null;
+          this._historyRequestToken += 1;
+        }
         this._render();
         return;
       }
-      if (this._historyMode !== "cycle") {
-        this._historyMode = "cycle";
+      // Sem sensor, o ano e a visao que mais diz: todas as faturas lado a
+      // lado. Abre nele — no ano da fatura mais recente, que em janeiro ainda
+      // e o ano anterior — ate a pessoa escolher outro modo nesta unidade.
+      if (!this._historyModeChosen.has(unit)) {
+        const anos = (this._cyclesCatalog(unit) ?? [])
+          .map((cycle) => this._billingReferenceParts(cycle?.billing_reference)?.year)
+          .filter(Number.isInteger);
+        if (this._historyMode !== "year" || anos.length) {
+          if (!this._historyModeAntesDoPadrao && this._historyMode !== "year") {
+            this._historyModeAntesDoPadrao = this._historyMode;
+          }
+          this._historyMode = "year";
+          if (anos.length) this._historyReferences.year = String(Math.max(...anos));
+          this._historyRequestToken += 1;
+        }
+      } else if (this._historyMode !== "cycle" && this._historyMode !== "year") {
+        this._historyMode = "year";
         this._historyRequestToken += 1;
       }
       this._render();
       if (this._historyVisible) this._renderHistoryChart();
+    }
+
+    // Unidade sem sensor so tem o que a concessionaria publica. Sem nenhuma
+    // fatura com consumo, nao ha curva a desenhar, e o grafico sai da tela.
+    // Enquanto o catalogo nao chegou, nao se sabe — e o grafico fica.
+    _unitHasOfficialHistory(unit = this._selectedUnit) {
+      const cycles = this._cyclesCatalog(unit);
+      if (!Array.isArray(cycles)) return true;
+      return cycles.some((cycle) => {
+        const valor = cycle?.official_consumption?.value;
+        return typeof valor === "number" && Number.isFinite(valor);
+      });
     }
 
     _isOpenCycle(cycle = this._selectedHistoryCycle()) {
@@ -1518,6 +1557,15 @@
         return null;
       }
       if (this._billingCapabilityPending.has(this._selectedUnit)) return null;
+
+      // Unidade so com fatura nao tem serie no Home Assistant: ano e ciclo
+      // saem do catalogo de ciclos, que ja traz o consumo oficial de cada um.
+      if (this._unitIsBillingOnly()) {
+        await this._loadCyclesCatalog({ force: false });
+        this._render();
+        this._renderHistoryChart();
+        return null;
+      }
 
       if (this._historyMode === "cycle") {
         const cycles = await this._loadCyclesCatalog({ force: false });
@@ -3076,6 +3124,15 @@
           // respostas decidem a mesma coisa: o que desenhar.
           this._unitCapabilities = response.data.capabilities ?? null;
           this._render();
+          // As cargas pedidas ao abrir a pagina desistem enquanto a unidade
+          // nao esta na lista — e a lista e este catalogo. Ao recarregar a
+          // pagina ele chegava depois delas, ninguem pedia de novo, e a tela
+          // ficava em "Aguardando dados da unidade" ate alguem apertar
+          // atualizar. Pedir aqui e seguro: o que ja esta em cache ou em
+          // curso nao se repete.
+          this._loadSelected();
+          this._loadOverviewUnits();
+          this._ensureBillingOnlyMode(this._selectedUnit);
           return this._unitCatalog;
         } catch (error) {
           return null;
@@ -3229,7 +3286,8 @@
       if (!response || response.api_version !== API_VERSION || !data
         || typeof data !== "object" || Array.isArray(data)
         || !Number.isInteger(data.revision)
-        || !data.current || typeof data.current !== "object"
+        // `current` nulo e rateio pendente: ninguem informou ainda.
+        || (data.current !== null && typeof data.current !== "object")
         || !Array.isArray(data.history)) {
         throw new Error("Resposta de rateio inválida.");
       }
@@ -3829,7 +3887,9 @@
         // informa, em vez de mandar conferir uma configuracao que esta certa.
         this._paybackProjectionError = code === "payback_investment_missing"
           ? "missing_investment"
-          : (code === "payback_projection_unavailable" ? "unavailable" : "error");
+          : code === "payback_billing_missing"
+            ? "missing_billing"
+            : (code === "payback_projection_unavailable" ? "unavailable" : "error");
         this._renderPaybackProjectionUpdate();
         return null;
       }).finally(() => {
@@ -4581,7 +4641,12 @@
     _setHistoryMode(mode) {
       if (!Object.hasOwn(HISTORY_MODES, mode) || mode === this._historyMode) return;
       this._historyHighlight = null;
-      if (this._unitIsBillingOnly() && mode !== "cycle") return;
+      // Escolha da pessoa: o padrao "ano" da unidade so com fatura nao a
+      // desfaz ao voltar para esta unidade.
+      if (this._selectedUnit) this._historyModeChosen.add(this._selectedUnit);
+      // Escolha feita: ela vale dali em diante, e nao ha padrao a desfazer.
+      this._historyModeAntesDoPadrao = null;
+      if (this._unitIsBillingOnly() && mode !== "cycle" && mode !== "year") return;
       if (mode === "month" && this._historyReferences.month === null) {
         this._historyReferences.month = this._historyReferences.day.slice(0, 7);
       }
@@ -4770,7 +4835,8 @@
       // veio ver o payback e descobriu que falta um numero.
       if (action === "payback-open-investment") {
         this._page = "configuracao";
-        this._settingsModal = "investimento";
+        this._settingsModal = button.dataset.modal || "investimento";
+        if (this._settingsModal === "extracao") this._loadInvoices({ force: true });
         this._storeView();
         this._refresh();
         return;
@@ -4881,6 +4947,18 @@
       }
       if (action === "invoice-export") {
         this._exportInvoices();
+        return;
+      }
+      if (action === "invoice-uc-toggle") {
+        this._invoiceOpenUcs ??= new Set();
+        const uc = button.dataset.uc;
+        if (this._invoiceOpenUcs.has(uc)) this._invoiceOpenUcs.delete(uc);
+        else this._invoiceOpenUcs.add(uc);
+        this._renderInvoiceUpdate();
+        return;
+      }
+      if (action === "invoice-delete") {
+        this._deleteInvoice(button.dataset.digest, button.dataset.label ?? "selecionada");
         return;
       }
       if (action === "unit-color-clear") {
@@ -6109,12 +6187,8 @@
 
     async _renderHistoryChart() {
       const billingOnly = this._unitIsBillingOnly();
-      const key = billingOnly
-        ? `${this._selectedUnit}|billing_only|${this._billingReferenceFor()}`
-        : this._historyKey();
-      const data = billingOnly
-        ? this._billingOnlyChartData()
-        : this._historyData(key);
+      const key = billingOnly ? this._billingOnlyHistoryKey() : this._historyKey();
+      const data = billingOnly ? this._billingOnlyHistoryData() : this._historyData(key);
       const element = this.shadowRoot.querySelector("[data-history-chart]");
       if (
         !element
@@ -6130,7 +6204,7 @@
         if (
           !element.isConnected
           || key !== (this._unitIsBillingOnly()
-            ? `${this._selectedUnit}|billing_only|${this._billingReferenceFor()}`
+            ? this._billingOnlyHistoryKey()
             : this._historyKey())
           || element !== this.shadowRoot.querySelector("[data-history-chart]")
         ) {
@@ -6258,12 +6332,66 @@
       const dialogoAberto = Boolean(this._settingsModal);
       const posicoes = dialogoAberto ? this._captureSettingsScroll() : [];
       const foco = dialogoAberto ? this._settingsFocusKey() : null;
+      const rolagem = this._capturePageScroll();
 
       this._renderShell();
 
+      this._restorePageScroll(rolagem);
       if (!dialogoAberto) return;
       this._restoreSettingsScroll(posicoes);
       this._restoreSettingsFocus(foco);
+    }
+
+    // Quem rola a pagina nao e este elemento: e um conteiner do Home
+    // Assistant acima dele — ou a janela, quando a tela e um cartao. Sobe a
+    // arvore atravessando as shadow roots e guarda cada um que esteja rolado.
+    _pageScrollers() {
+      const rolaveis = [];
+      let no = this;
+      while (no) {
+        const raiz = no.getRootNode?.();
+        const pai = no.parentElement
+          ?? (raiz instanceof ShadowRoot ? raiz.host : null);
+        if (!pai) break;
+        if (pai.scrollHeight > pai.clientHeight) {
+          const estilo = getComputedStyle(pai).overflowY;
+          if (estilo === "auto" || estilo === "scroll") rolaveis.push(pai);
+        }
+        no = pai;
+      }
+      if (document.scrollingElement) rolaveis.push(document.scrollingElement);
+      return rolaveis;
+    }
+
+    _capturePageScroll() {
+      if (!this.isConnected) return null;
+      const pares = this._pageScrollers()
+        .map((alvo) => [alvo, alvo.scrollTop])
+        .filter(([, topo]) => topo > 0);
+      if (!pares.length) return null;
+      return { pares, altura: this.offsetHeight };
+    }
+
+    // Trocar ciclo ou ano redesenha a tela com os blocos "carregando", mais
+    // baixos que o conteudo: a pagina encolhia, a rolagem era cortada e a
+    // tela pulava para o topo. A altura anterior fica segurada enquanto os
+    // dados chegam, e a rolagem volta para onde estava.
+    _restorePageScroll(rolagem) {
+      if (!rolagem) return;
+      this.style.minHeight = `${rolagem.altura}px`;
+      clearTimeout(this._alturaSeguraTimer);
+      this._alturaSeguraTimer = setTimeout(() => {
+        this.style.minHeight = "";
+      }, 2500);
+      const aplicar = () => {
+        for (const [alvo, topo] of rolagem.pares) {
+          if (alvo.isConnected && Math.abs(alvo.scrollTop - topo) > 1) {
+            alvo.scrollTop = topo;
+          }
+        }
+      };
+      aplicar();
+      requestAnimationFrame(aplicar);
     }
 
     // Nao ha um so elemento que rola: dependendo da altura da tela, quem rola
@@ -6519,7 +6647,10 @@
       header.append(copy);
 
       const acoes = this._element("div", "top-bar-actions");
-      if (this._page === "overview") acoes.append(this._renderOverviewReferenceControl());
+      // A Visao geral nao tem seletor de periodo no topo: os cartoes seguem o
+      // ciclo de cada unidade, e o unico que obedecia a ele era o fluxo, que
+      // ja tem o proprio seletor. Dois controles do mesmo estado, um deles
+      // em cima de cartoes que o ignoravam, so confundiam.
       acoes.append(this._renderSystemStatus());
 
       const refresh = this._button("", "refresh", "icon-button");
@@ -6563,7 +6694,9 @@
     // curso, se a ultima falhou, e quantos alertas estao abertos. Nao existe
     // "ONLINE" fixo — isso seria enfeite, nao supervisao.
     _renderSystemStatus() {
-      const carregando = this._inFlight.size > 0;
+      // O catalogo de unidades tambem e carga: enquanto ele nao chega a tela
+      // nao tem o que mostrar, e o selo nao pode dizer "Operacional".
+      const carregando = this._inFlight.size > 0 || Boolean(this._unitCatalogRequest);
       const falha = this._errors.size > 0;
       const criticos = this._operationalAlerts()
         .filter((item) => item.severity === "critical").length;
@@ -6848,7 +6981,9 @@
       if (!atual) return;
       const dados = this._displayData();
       if (!dados) return;
-      atual.replaceWith(this._renderMeasurements(dados.snapshot ?? {}));
+      const novo = this._renderMeasurements(dados.snapshot ?? {});
+      if (novo) atual.replaceWith(novo);
+      else atual.remove();
     }
 
     // Troca so o cartao da unidade. Um _render completo aqui remontaria o
@@ -7692,6 +7827,7 @@
       // comecar. O convite vem antes dos ajustes, que ainda nao tem sobre o
       // que incidir.
       if (this._isEmptyInstallation) content.append(this._renderWelcome());
+      else content.append(this._renderIntegrationShortcut());
 
       // Cada assunto vira um cartao que abre o proprio dialogo. Empilhados na
       // pagina, os tres formularios competiam pela atencao e o operador lia
@@ -7748,13 +7884,41 @@
       }
       painel.append(passos);
 
-      const acao = this._button(
-        "Criar a primeira unidade", "settings-open", "button primary",
-      );
-      acao.dataset.modal = "unidades";
-      acao.setAttribute("aria-haspopup", "dialog");
-      painel.append(acao);
+      painel.append(this._integrationLink("Criar a primeira unidade", "button primary"));
       return painel;
+    }
+
+    // A configuracao mora na pagina da integracao, como em qualquer
+    // integracao do Home Assistant: la estao unidades, sensores, troca de
+    // medidor, rateio, tarifa e investimento. Aqui fica o atalho, e o que so
+    // a tela sabe fazer — ler a pasta de faturas do computador de quem usa.
+    _renderIntegrationShortcut() {
+      const painel = this._element("section", "panel welcome");
+      painel.append(this._element("h3", "welcome-title", "Configuração da integração"));
+      painel.append(this._element(
+        "p", "welcome-text",
+        "Unidades, sensores, troca de medidor, rateio, tarifa e investimento "
+        + "se configuram na página da integração, em Configurar. As faturas "
+        + "continuam sendo lidas aqui.",
+      ));
+      painel.append(this._integrationLink("Abrir a configuração", "button primary"));
+      return painel;
+    }
+
+    _integrationLink(texto, className) {
+      const destino = "/config/integrations/integration/co_energy";
+      const link = this._element("a", className, texto);
+      link.href = destino;
+      // Navegacao interna do Home Assistant: sem recarregar a pagina inteira.
+      link.addEventListener("click", (evento) => {
+        if (evento.ctrlKey || evento.metaKey || evento.shiftKey) return;
+        evento.preventDefault();
+        window.history.pushState(null, "", destino);
+        window.dispatchEvent(new CustomEvent("location-changed", {
+          detail: { replace: false },
+        }));
+      });
+      return link;
     }
 
     _renderSettingsLaunchers(dados) {
@@ -8344,6 +8508,53 @@
       return painel;
     }
 
+    _renderInvoiceBills(uc) {
+      const lista = this._element("div", "invoice-bill-list");
+      for (const fatura of uc.invoices ?? []) {
+        const item = this._element("div", "invoice-bill");
+        const partes = [fatura.reference ?? "—"];
+        if (typeof fatura.consumption_kwh === "number") {
+          partes.push(`${this._formatNumber(fatura.consumption_kwh, 0, 0)} kWh`);
+        }
+        if (typeof fatura.total_amount === "number") {
+          partes.push(this._formatCurrency(fatura.total_amount, "BRL"));
+        }
+        item.append(this._element("span", "num invoice-bill-text", partes.join(" · ")));
+        const apagar = this._button("Apagar", "invoice-delete", "button invoice-bill-delete");
+        apagar.dataset.digest = fatura.digest ?? "";
+        apagar.dataset.label = `${fatura.reference ?? "esta fatura"} da UC ${this._invoiceUcLabel(uc)}`;
+        apagar.disabled = this._invoiceBusy || !fatura.digest;
+        item.append(apagar);
+        lista.append(item);
+      }
+      return lista;
+    }
+
+    async _deleteInvoice(digest, rotulo) {
+      if (!digest) return;
+      if (!window.confirm(
+        `Apagar a fatura ${rotulo}? Os cálculos desse ciclo passam a ficar sem `
+        + "o dado oficial. Para trazê-la de volta, basta enviar o mesmo PDF de novo.",
+      )) return;
+      this._invoiceBusy = true;
+      this._renderInvoiceUpdate();
+      try {
+        const resposta = await this._hass.callWS({ type: INVOICE_DELETE_COMMAND, digest });
+        if (resposta?.data) this._invoices = resposta.data;
+        this._invoiceMessage = `Fatura ${rotulo} apagada.`;
+        this._invoiceMessageKind = "ok";
+        // Ciclos, auditoria e custo se montam a partir das faturas: o que
+        // estava em cache ainda conta com a que saiu.
+        this._cyclesCatalogCache?.clear?.();
+      } catch (error) {
+        this._invoiceMessage = error?.message ?? "Não foi possível apagar a fatura.";
+        this._invoiceMessageKind = "error";
+      } finally {
+        this._invoiceBusy = false;
+        this._renderInvoiceUpdate();
+      }
+    }
+
     _renderInvoiceProgress(lote) {
       const caixa = this._element("div", "extraction-progress");
       const trilho = this._element("div", "extraction-bar");
@@ -8378,10 +8589,18 @@
         const periodo = uc.first_reference === uc.last_reference
           ? uc.first_reference
           : `${uc.first_reference} → ${uc.last_reference}`;
-        linha.append(this._element(
-          "span", "invoice-uc-period",
-          `${periodo} · ${uc.bills} fatura${uc.bills === 1 ? "" : "s"}`,
-        ));
+        // O periodo abre a lista das faturas da UC: e de la que se apaga a
+        // que entrou errada. Fechada por padrao — a lista toda aberta seria
+        // um paredao de linhas para quem so veio dizer de quem e cada UC.
+        const aberta = this._invoiceOpenUcs?.has(uc.hash) ?? false;
+        const abrir = this._button(
+          `${aberta ? "▾" : "▸"} ${periodo} · ${uc.bills} fatura${uc.bills === 1 ? "" : "s"}`,
+          "invoice-uc-toggle",
+          "invoice-uc-period invoice-uc-toggle",
+        );
+        abrir.dataset.uc = uc.hash;
+        abrir.setAttribute("aria-expanded", String(aberta));
+        linha.append(abrir);
 
         const escolha = this._element("select", "settings-input invoice-uc-owner");
         escolha.dataset.action = "invoice-uc-owner";
@@ -8399,6 +8618,7 @@
         escolha.value = uc.unit_id ?? "";
         linha.append(escolha);
         secao.append(linha);
+        if (aberta) secao.append(this._renderInvoiceBills(uc));
       }
       if (dados.bills_without_uc) {
         secao.append(this._element(
@@ -8951,7 +9171,7 @@
       );
       const rotulo = this._element("input", "history-date-input settings-input");
       rotulo.type = "text";
-      rotulo.placeholder = "Shelly EM Gen4";
+      rotulo.placeholder = "Ex.: medidor novo";
       rotulo.value = rascunho.label ?? "";
       rotulo.dataset.action = "swap-label";
       campoRotulo.append(rotulo);
@@ -10331,17 +10551,27 @@
       const content = this._element("div", "content unit-page");
       const snapshot = data.snapshot ?? {};
       content.append(
-        this._renderIdentity(snapshot, data.cycle_energy?.cycle),
-        this._renderMeasurements(snapshot),
-        this._renderConsumptionComposition(),
+        ...[
+          this._renderIdentity(snapshot, data.cycle_energy?.cycle),
+          this._renderBillEstimate(snapshot, data.prediction),
+          this._renderMeasurements(snapshot),
+          this._renderConsumptionComposition(),
+        ].filter(Boolean),
       );
 
       // Os dois graficos lado a lado: um responde "como foi dentro do ciclo",
       // o outro "como este ciclo se compara ao anterior". Empilhados, comparar
       // exigia memoria; lado a lado, exige o olho.
-      const graficos = this._element("div", "charts-row");
-      graficos.append(this._renderHistory(), this._renderComparison());
-      content.append(graficos);
+      // Sem sensor nao ha o que comparar: a comparacao sai, em vez de ocupar
+      // metade da linha para dizer "indisponivel". Volta quando houver sensor.
+      const semComparacao = this._comparisonUnavailable();
+      const semCurva = snapshot.measured === false && !this._unitHasOfficialHistory();
+      if (!semCurva) {
+        const graficos = this._element("div", `charts-row${semComparacao ? " single" : ""}`);
+        graficos.append(this._renderHistory());
+        if (!semComparacao) graficos.append(this._renderComparison());
+        content.append(graficos);
+      }
 
       return content;
     }
@@ -10890,7 +11120,9 @@
       for (const unit of this._unitIds()) {
         const key = this._key(unit);
         const cached = this._cache.get(key) ?? this._stale.get(key);
-        const visibleName = cached?.snapshot?.name ?? unit;
+        // O catalogo ja traz o nome antes de cada unidade carregar os
+        // proprios dados; sem ele a aba mostrava o id ("apto_1") ate o clique.
+        const visibleName = cached?.snapshot?.name ?? this._unitLabel(unit);
         const button = this._button(visibleName, "select-unit", "unit-button");
         button.dataset.unit = unit;
         button.setAttribute("aria-pressed", String(unit === this._selectedUnit));
@@ -12081,21 +12313,43 @@
       // Ciclo primeiro, dia depois. A linha de cima do cartao ja e do ciclo —
       // consumo acumulado e tendencia — entao previsao e preco continuam esse
       // assunto antes de a leitura descer para o que aconteceu hoje.
+      // Um selo so, no canto, para o bloco inteiro — como o "Medido" do
+      // consumo acima. Um selo ao lado de cada valor disputava a linha com o
+      // numero, e consumo alto quebrava "kWh" para a linha de baixo.
+      //
+      // O selo e o NOME do bloco, nao um aviso de que ha numero: fica sempre,
+      // tambem quando a projecao ainda nao tem valor (ciclo aguardando
+      // fatura). O traco embaixo ja diz "sem valor agora"; sem o selo, o
+      // cartao mudava de forma e o bloco ficava sem dizer o que e.
+      const cabecalho = this._element("div", "unit-card-kpis-head");
+      cabecalho.append(this._element("span", "tag tag-log", "Projeção"));
+      // Sem medicao nao ha projecao: o numero que existe para essa unidade e
+      // a fatura anterior repetida, e ele mora na tela da unidade, com a
+      // conta explicada. Aqui ficam os tracos — que, junto do "Sem medicao"
+      // la em cima, dizem por si que falta sensor.
+      const semMedicao = snapshot.measured === false;
+      const previsao = semMedicao ? null : prediction;
       kpis.append(
+        cabecalho,
         this._unitCardKpi(
           "Previsão do ciclo",
           // Uma casa decimal: a previsao vem com a precisao do calculo, e
           // "266,643 kWh" sugere uma exatidao que uma projecao nao tem.
-          prediction
-            ? this._valueWithUnit(prediction.predicted_value, prediction.unit, 1)
+          previsao
+            ? this._valueWithUnit(previsao.predicted_value, previsao.unit, 1)
             : "—",
-          prediction ? "Projeção" : null,
         ),
-        this._renderUnitCardCost(unit),
-        // O mesmo traco que separa o total do ciclo destes KPIs, pela mesma
-        // razao: acima e o ciclo inteiro, abaixo e so hoje.
-        this._element("div", "unit-card-kpi-divider"),
-        ...this._renderUnitCardDay(unit),
+        this._renderUnitCardCost(unit, { semMedicao }),
+        // Recebido e saldo so existem onde alguma unidade gera: sem geracao
+        // nao ha credito a receber, e a linha seria dois tracos soltos. Com
+        // geracao ela fica em todas as unidades — inclusive na que nao tem
+        // sensor, onde o traco diz "falta medicao", nao "nao se aplica".
+        ...(this._hasGeneration ? [
+          // O mesmo traco que separa o total do ciclo destes KPIs, pela mesma
+          // razao: acima e o ciclo inteiro, abaixo e so hoje.
+          this._element("div", "unit-card-kpi-divider"),
+          ...this._renderUnitCardDay(unit),
+        ] : []),
       );
       body.append(kpis);
 
@@ -12216,8 +12470,8 @@
     // O preco vem pronto do backend, com a composicao e os avisos que o proprio
     // calculo declarou. O tooltip mostra essa composicao: um numero de dinheiro
     // sem a conta atras dele nao se confere.
-    _renderUnitCardCost(unit) {
-      const dados = this._cycleCost.get(unit);
+    _renderUnitCardCost(unit, { semMedicao = false } = {}) {
+      const dados = semMedicao ? null : this._cycleCost.get(unit);
       const carregando = this._cycleCostInFlight.has(unit);
       const total = dados?.money?.total_amount;
       const item = this._element("div", "unit-card-kpi");
@@ -12232,9 +12486,6 @@
           ? (carregando ? "…" : "—")
           : this._formatCurrency(Number(total), dados.currency),
       ));
-      if (total !== null && total !== undefined) {
-        linha.append(this._element("span", "unit-card-kpi-hint", "Projeção"));
-      }
       item.append(linha);
       const explicacao = this._cycleCostExplanation(dados);
       if (explicacao) item.title = explicacao;
@@ -12334,6 +12585,10 @@
       modeSelector.setAttribute("role", "group");
       modeSelector.setAttribute("aria-label", "Modo do histórico");
       for (const [mode, definition] of Object.entries(HISTORY_MODES)) {
+        // Sem sensor nao ha curva de dia nem de mes: os botoes somem em vez
+        // de ficarem apagados. Ano e ciclo saem das faturas. Quando a unidade
+        // ganha sensor, deixa de ser "so fatura" e os quatro voltam.
+        if (billingOnly && (mode === "day" || mode === "month")) continue;
         const button = this._button(
           definition.label,
           "history-mode",
@@ -12341,15 +12596,6 @@
         );
         button.dataset.mode = mode;
         button.setAttribute("aria-pressed", String(mode === this._historyMode));
-        if (billingOnly && mode !== "cycle") {
-          button.disabled = true;
-          button.setAttribute("aria-disabled", "true");
-          button.title = {
-            day: "Indisponível: esta unidade não possui medição diária.",
-            month: "Indisponível: esta unidade não possui dados diários para compor esta visão.",
-            year: "Indisponível: consulte as faturas pelo modo CICLO.",
-          }[mode];
-        }
         if (mode === "cycle") {
           button.setAttribute("aria-label", "Exibir histórico por ciclo de faturamento");
         }
@@ -12392,6 +12638,15 @@
       header.append(heading);
       if (controls) header.append(controls);
       section.append(header);
+
+      if (billingOnly && this._historyMode === "year") {
+        if (!Array.isArray(this._cyclesCatalog())) {
+          section.append(this._historyStatus("Carregando faturas…", "loading"));
+          return section;
+        }
+        this._appendBillingOnlyYear(section);
+        return section;
+      }
 
       if (this._historyMode === "cycle") {
         const catalogLoading = this._cyclesCatalogInFlight.has(this._selectedUnit);
@@ -12533,6 +12788,89 @@
         ));
       }
       return section;
+    }
+
+    // Um ano de faturas: uma barra por referencia que tem fatura. Mes sem
+    // fatura nao vira barra zerada — ausencia de dado nao e zero.
+    _billingOnlyYearData(unit = this._selectedUnit) {
+      if (!this._unitIsBillingOnly(unit)) return null;
+      const year = Number(this._historyReferences.year ?? this._currentHistoryReference());
+      const cycles = (this._cyclesCatalog(unit) ?? [])
+        .filter((cycle) => (
+          cycle?.capability === "billing_only"
+          && this._billingReferenceParts(cycle.billing_reference)?.year === year
+        ))
+        .sort((a, b) => (
+          this._billingReferenceParts(a.billing_reference).month
+          - this._billingReferenceParts(b.billing_reference).month
+        ));
+      const points = cycles.map((cycle) => {
+        const numericValue = cycle.official_consumption?.value;
+        return {
+          start: cycle.billing_reference,
+          end: cycle.billing_reference,
+          value: typeof numericValue === "number" && Number.isFinite(numericValue)
+            ? numericValue : null,
+          complete: true,
+          issues: [],
+          cycle,
+        };
+      });
+      const values = points.map((point) => point.value).filter((value) => value !== null);
+      return {
+        billingOnly: true,
+        available: true,
+        unit_id: unit,
+        mode: "year",
+        reference: String(year),
+        series: [{
+          logical_id: `${unit}.official_year_consumption`,
+          label: "Consumo oficial no ano",
+          unit: "kWh",
+          total: values.length ? values.reduce((soma, value) => soma + value, 0) : null,
+          points,
+        }],
+      };
+    }
+
+    _billingOnlyHistoryKey() {
+      return this._historyMode === "year"
+        ? `${this._selectedUnit}|billing_only_year|${this._historyReferences.year ?? this._currentHistoryReference()}`
+        : `${this._selectedUnit}|billing_only|${this._billingReferenceFor()}`;
+    }
+
+    _billingOnlyHistoryData() {
+      return this._historyMode === "year"
+        ? this._billingOnlyYearData()
+        : this._billingOnlyChartData();
+    }
+
+    _appendBillingOnlyYear(section) {
+      const data = this._billingOnlyYearData();
+      if (!data || !data.series[0].points.some((point) => point.value !== null)) {
+        section.append(this._historyStatus(
+          "Nenhuma fatura lida neste ano.",
+          "compact",
+        ));
+        return;
+      }
+      section.append(this._element(
+        "p", "history-cycle-reference", `Faturas de ${data.reference}`,
+      ));
+      if (this._chartModuleError) {
+        section.append(this._renderHistoryError(this._chartModuleError));
+        return;
+      }
+      const frame = this._element("div", "history-chart-frame");
+      const chart = this._element("div", "history-chart");
+      chart.dataset.historyChart = "";
+      chart.setAttribute("role", "img");
+      chart.setAttribute(
+        "aria-label",
+        `Consumo oficial de ${this._selectedUnit} em ${data.reference}`,
+      );
+      frame.append(chart);
+      section.append(frame, this._renderHistoryTotals(data));
     }
 
     _appendBillingOnlyCycles(section) {
@@ -13186,26 +13524,18 @@
       return section;
     }
 
+    // Unidade sem nenhuma leitura instantanea declarada nao ganha o quadro:
+    // um painel inteiro para dizer "nao ha" e so espaco ocupado. Quando um
+    // sensor de tensao, corrente ou potencia for apontado, ele aparece.
     _renderMeasurements(snapshot) {
-      const section = this._element("section", "panel");
-      section.dataset.measurementsPanel = "";
-      section.append(this._element("h3", "section-title", "Medições instantâneas"));
       const measurements = Array.isArray(snapshot.measurements)
         ? snapshot.measurements
         : [];
+      if (measurements.length === 0) return null;
 
-      if (!snapshot.measured && measurements.length === 0) {
-        section.append(this._element(
-          "p",
-          "empty",
-          "Unidade sem medição instantânea no Home Assistant",
-        ));
-        return section;
-      }
-      if (measurements.length === 0) {
-        section.append(this._element("p", "empty", "Medições indisponíveis"));
-        return section;
-      }
+      const section = this._element("section", "panel");
+      section.dataset.measurementsPanel = "";
+      section.append(this._element("h3", "section-title", "Medições instantâneas"));
 
       const grid = this._element("div", "metric-grid");
       for (const measurement of measurements) {
@@ -13503,6 +13833,72 @@
         this._field("Extração", bill.extraction_status ?? "—"),
       );
       return section;
+    }
+
+    // So para a unidade sem medicao: o que se espera da proxima conta,
+    // repetindo o ritmo da ultima fatura. Nao e projecao — nao ha sensor para
+    // projetar —, e por isso tem nome proprio, selo "Estimado" e a conta a
+    // vista: quem le sabe exatamente de onde o numero saiu.
+    _renderBillEstimate(snapshot, prediction) {
+      const base = prediction?.basis;
+      if (snapshot.measured !== false || !base) return null;
+      const section = this._element("section", "panel bill-estimate");
+      section.dataset.billEstimate = "";
+      const head = this._element("div", "unit-card-metric-head");
+      head.append(
+        this._element("h3", "section-title", "Estimativa pela última fatura"),
+        this._element("span", "tag tag-log", "Estimado"),
+      );
+      section.append(head);
+
+      const valores = this._element("div", "bill-estimate-values");
+      valores.append(this._field(
+        "Consumo estimado do ciclo",
+        this._valueWithUnit(prediction.predicted_value, prediction.unit, 1),
+      ));
+      // O preco sai do mesmo calculo que o cartao da Visao geral usa. Quem
+      // abria a unidade direto nunca tinha passado por la, o calculo nao
+      // existia, e o quadro vinha so com o consumo. Aqui ele e pedido; ao
+      // chegar, so este quadro e redesenhado.
+      const unidade = this._selectedUnit;
+      const custo = this._cycleCost.get(unidade);
+      if (
+        !custo && !this._cycleCostInFlight.has(unidade)
+        && !this._cycleCostErrors.has(unidade)
+      ) {
+        this._loadCycleCost(unidade).then(() => this._renderBillEstimateUpdate());
+      }
+      const total = custo?.money?.total_amount;
+      valores.append(this._field(
+        "Preço estimado s/ SCEE",
+        total !== null && total !== undefined
+          ? this._formatCurrency(Number(total), "BRL")
+          : this._cycleCostInFlight.has(unidade) ? "…" : "—",
+      ));
+      section.append(valores);
+
+      const porDia = Number(base.average_daily_value);
+      const dias = Number(base.target_days);
+      if (Number.isFinite(porDia) && Number.isFinite(dias)) {
+        section.append(this._element(
+          "p", "bill-estimate-note",
+          `Fatura de ${base.billing_reference ?? "—"}: `
+          + `${this._formatNumber(porDia, 2, 2)} kWh por dia × `
+          + `${this._formatNumber(dias, 0, 0)} dias do ciclo atual. `
+          + "Não é medição: repete o ritmo da última fatura, e não acompanha "
+          + "o que acontece agora.",
+        ));
+      }
+      return section;
+    }
+
+    _renderBillEstimateUpdate() {
+      const atual = this.shadowRoot?.querySelector("[data-bill-estimate]");
+      if (!atual) return;
+      const dados = this._displayData();
+      if (!dados) return;
+      const novo = this._renderBillEstimate(dados.snapshot ?? {}, dados.prediction);
+      if (novo) atual.replaceWith(novo);
     }
 
     _renderPrediction(prediction) {
@@ -13834,7 +14230,9 @@
       const edit = this._button("Editar rateio", "distribution-edit");
       const schedule = this._button("Agendar alteração", "distribution-schedule");
       edit.disabled = busy || this._distributionMode !== "idle" || data.scheduled !== null;
-      schedule.disabled = busy || this._distributionMode !== "idle" || data.scheduled !== null;
+      // Agendar precisa de um rateio vigente ate a data escolhida.
+      schedule.disabled = busy || this._distributionMode !== "idle" || data.scheduled !== null
+        || data.current === null;
       toolbar.append(edit, schedule);
       section.append(toolbar);
       if (this._distributionMutationMessage) {
@@ -13854,7 +14252,16 @@
           "loading compact",
         ));
       }
-      section.append(this._renderDistributionRule(data.current, "current"));
+      if (data.current === null) {
+        section.append(this._element(
+          "p", "distribution-empty",
+          "Rateio ainda não informado. Diga quanto da energia excedente vai "
+          + "para cada unidade em \"Editar rateio\" — ou em Configurar, na "
+          + "página da integração.",
+        ));
+      } else {
+        section.append(this._renderDistributionRule(data.current, "current"));
+      }
       if (this._distributionMode !== "idle" && this._distributionDraft) {
         section.append(this._renderDistributionEditor());
       }
@@ -13957,23 +14364,27 @@
       if (!this._paybackProjectionData && this._paybackProjectionError) {
         const faltaInvestimento =
           this._paybackProjectionError === "missing_investment";
+        const faltaFatura = this._paybackProjectionError === "missing_billing";
+        const pendente = faltaInvestimento || faltaFatura;
         const message = faltaInvestimento
           ? "Informe quanto custou o sistema solar para o payback ser calculado."
             + " O valor fica em Configuração › Investimento no sistema solar."
-          : (this._paybackProjectionError === "unavailable"
-            ? "Projeção de payback indisponível. Verifique a configuração financeira."
-            : "Não foi possível carregar a projeção de payback.");
+          : faltaFatura
+            ? "O payback soma a economia que aparece nas faturas, e nenhuma foi"
+              + " lida ainda. Leia as faturas em Configuração › Extração de faturas."
+            : (this._paybackProjectionError === "unavailable"
+              ? "Projeção de payback indisponível. Verifique a configuração financeira."
+              : "Não foi possível carregar a projeção de payback.");
         const error = this._element(
           "div",
-          `payback-projection-error ${faltaInvestimento ? "pending" : ""}`,
+          `payback-projection-error ${pendente ? "pending" : ""}`,
         );
-        error.append(
-          this._element("span", "", message),
-          this._button(
-            faltaInvestimento ? "Abrir a Configuração" : "Tentar novamente",
-            faltaInvestimento ? "payback-open-investment" : "payback-projection-retry",
-          ),
+        const botao = this._button(
+          pendente ? "Abrir a Configuração" : "Tentar novamente",
+          pendente ? "payback-open-investment" : "payback-projection-retry",
         );
+        if (faltaFatura) botao.dataset.modal = "extracao";
+        error.append(this._element("span", "", message), botao);
         section.append(error);
         return section;
       }
@@ -19747,6 +20158,7 @@
           border-left: 3px solid var(--accent, #4a9eff);
         }
         .welcome-title { margin: 0; font-size: 16px; font-weight: 600; }
+        .welcome a.button { justify-self: start; text-decoration: none; }
         .welcome-text {
           margin: 0;
           max-width: 70ch;
@@ -20296,6 +20708,15 @@
           min-width: 0;
           font-size: 14px;
         }
+        /* Numero e unidade nunca se separam: "354,7" numa linha e "kWh" na
+           outra era o defeito que o selo por valor causava. */
+        .unit-card-kpi-value .num { white-space: nowrap; }
+        .unit-card-kpis-head {
+          grid-column: 1 / -1;
+          display: flex;
+          justify-content: flex-end;
+          margin-bottom: -6px;
+        }
         /* O saldo do dia e o unico numero do cartao cujo SINAL e a mensagem:
            verde quer dizer que o credito rateado cobriu o consumo do dia. */
         .unit-card-kpi.saldo.positive .unit-card-saldo { color: var(--sev-ok); }
@@ -20767,6 +21188,20 @@
           align-items: start;
         }
         .charts-row > .panel { min-width: 0; }
+        .charts-row.single { grid-template-columns: minmax(0, 1fr); }
+        .bill-estimate { display: grid; gap: 12px; }
+        .bill-estimate .section-title { margin: 0; }
+        .bill-estimate-values {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          gap: 12px;
+        }
+        .bill-estimate-note {
+          margin: 0;
+          color: var(--muted);
+          font-size: 12.5px;
+          line-height: 1.5;
+        }
 
         /* ---------------- Auditoria e payback ---------------- */
         .audit-overview-table, .audit-table { font-size: 12.5px; }
@@ -21315,6 +21750,33 @@
           border-left: 2px solid var(--line);
           border-radius: 0 4px 4px 0;
         }
+        /* O periodo virou botao, mas continua lendo como o texto que era. */
+        .invoice-uc-toggle {
+          justify-self: start;
+          padding: 2px 0;
+          border: 0;
+          background: transparent;
+          color: inherit;
+          font: inherit;
+          text-align: left;
+          cursor: pointer;
+        }
+        .invoice-uc-toggle:hover { color: var(--primary-color); }
+        .invoice-bill-list {
+          display: grid;
+          gap: 4px;
+          margin: 0 0 6px 22px;
+          padding-left: 10px;
+          border-left: 1px dashed var(--line);
+        }
+        .invoice-bill {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          font-size: 12.5px;
+        }
+        .invoice-bill-delete { padding: 3px 10px; font-size: 12px; }
         .invoice-uc-row.sem-dono {
           border-left-color: var(--sev-warn);
           background: color-mix(in srgb, var(--sev-warn) 7%, transparent);

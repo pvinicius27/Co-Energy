@@ -43,12 +43,15 @@ sua origem.
 ## Primeiros passos
 
 **Configurações → Dispositivos e serviços → Adicionar integração → Gestão de
-Energia.** Deixe os dois campos em branco: eles existem apenas para quem já tem
-os modelos em arquivo e quer partir deles.
+Energia.** Um assistente pede a primeira unidade — nome, se ela gera energia e
+se tem medidor no Home Assistant — e, se tiver medidor, os sensores dela. Dá
+para cadastrar outras unidades ali mesmo antes de concluir.
 
-Pronto — **Gestão de Energia** aparece na barra lateral. Tudo o mais (unidades,
-sensores, rateio, tarifa, investimento e faturas) se configura ali, sem editar
-YAML.
+Pronto — **Gestão de Energia** aparece na barra lateral. Para mudar qualquer
+coisa depois, use **Configurar** na página da integração: unidades, sensores
+(inclusive troca de medidor), rateio, tarifa, investimento e horário de corte.
+As faturas em PDF são lidas pela própria tela, na aba Configuração. Nada disso
+exige editar YAML.
 
 A tela também está disponível como cartão (`co-energy-overview-card-v6`) para
 quem prefere montá-la num painel próprio.

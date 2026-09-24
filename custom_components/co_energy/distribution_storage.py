@@ -220,6 +220,23 @@ class DistributionManager:
                 raise DistributionFutureRuleError(
                     "cancel the future rule before an immediate change"
                 )
+            if not data.rules:
+                # O primeiro rateio de quem tem duas ou mais unidades. Não há
+                # regra vigente para encerrar, e o que se informa agora é tudo
+                # o que se sabe: vale desde sempre, como a regra automática de
+                # quem tem uma unidade só. Sem este caminho, o rateio pendente
+                # nunca deixava de ser pendente — gravar era recusado por
+                # "nenhuma regra cobre o instante".
+                candidate = DistributionStorageData(
+                    data.revision + 1, data.timezone,
+                    (ConfiguredDistributionRule(
+                        id=str(uuid4()), label=label, effective_from=None,
+                        effective_until=None, shares=normalized_shares,
+                        created_at=now,
+                    ),),
+                )
+                await self._persist(candidate)
+                return resolve_distribution(candidate, now, self._unit_ids)
             current = resolve_distribution(data, now, self._unit_ids)
             rules = list(data.rules)
             current_index = next(
@@ -272,6 +289,12 @@ class DistributionManager:
                 for rule in data.rules
             ):
                 raise DistributionFutureRuleError("a future rule already exists")
+            if not data.rules:
+                # Agendar exige uma regra vigente até a data: sem ela, o
+                # intervalo de hoje até lá ficaria sem rateio nenhum.
+                raise DistributionFutureRuleError(
+                    "inform the current distribution before scheduling one"
+                )
             current = resolve_distribution(data, now, self._unit_ids)
             rules = list(data.rules)
             current_index = next(
@@ -384,6 +407,7 @@ async def async_build_distribution_manager(
                     "Configured distribution Store is semantically invalid"
                 )
                 return DistributionManager(store, None, unit_ids, clock=clock)
+        data = await _async_seed_single_unit(store, data, unit_ids, clock)
         return DistributionManager(store, data, unit_ids, clock=clock)
 
     if store_existed:
@@ -393,7 +417,12 @@ async def async_build_distribution_manager(
     fuso = _timezone_do_hass(hass)
     bootstrap_clock = clock or (lambda: datetime.now(ZoneInfo(fuso)))
     try:
-        data = distribution_from_seed(model, bootstrap_clock(), timezone=fuso)
+        agora = bootstrap_clock()
+        data = distribution_from_seed(model, agora, timezone=fuso)
+        # A integração pode subir pela primeira vez já com uma unidade — é o
+        # que o assistente de instalação faz. Sem isto ela nasceria com o
+        # rateio pendente, e só ganharia os 100% no boot seguinte.
+        data = single_unit_rule(data, unit_ids, agora)
         await store.async_save(serialize_storage_data(data, unit_ids))
     except Exception:
         _LOGGER.error("Could not bootstrap configured distribution Store", exc_info=True)
@@ -439,8 +468,12 @@ def _stored_unit_ids(raw_data: Any) -> tuple[str, ...] | None:
     if not isinstance(raw_data, Mapping):
         return None
     rules = raw_data.get("rules")
-    if not isinstance(rules, (list, tuple)) or not rules:
+    if not isinstance(rules, (list, tuple)):
         return None
+    # Sem regra, nao ha unidade declarada no payload — e isso e um rateio
+    # ainda nao informado, nao um Store ilegivel.
+    if not rules:
+        return ()
     primeira = rules[0]
     if not isinstance(primeira, Mapping):
         return None
@@ -448,6 +481,77 @@ def _stored_unit_ids(raw_data: Any) -> tuple[str, ...] | None:
     if not isinstance(shares, Mapping) or not shares:
         return None
     return tuple(str(unit_id) for unit_id in shares)
+
+
+def share_blocking_removal(
+    data: DistributionStorageData | None, unit_id: str, unit_ids: Sequence[str]
+) -> Decimal | None:
+    """O maior percentual que a unidade tem em alguma regra, se impedir a saida.
+
+    Excluir uma unidade com credito atribuido deixaria as outras somando menos
+    de 100 — e o rateio inteiro invalido, levando junto fluxo energetico e
+    payback. Pior: a regra historica que ela carrega e a que explica as
+    faturas fechadas daquele periodo, e apaga-la reescreveria o passado.
+
+    Por isso a saida espera o percentual ir a zero. Duas excecoes, porque nelas
+    nao ha o que preservar: a ultima unidade (sem ninguem, nao ha rateio), e
+    a regra automatica de unidade unica, que ninguem escolheu.
+    """
+    if data is None or not data.rules:
+        return None
+    if len(tuple(unit_ids)) <= 1:
+        return None
+    maior = Decimal("0")
+    for regra in data.rules:
+        if regra.id == "unica":
+            continue
+        valor = Decimal(regra.shares.get(unit_id, Decimal("0")))
+        if valor > maior:
+            maior = valor
+    return maior if maior > 0 else None
+
+
+def single_unit_rule(
+    data: DistributionStorageData, unit_ids: Sequence[str], now: datetime
+) -> DistributionStorageData:
+    """Com uma unidade so, o unico rateio possivel: 100% para ela.
+
+    Nao e decisao de ninguem — os percentuais precisam listar exatamente as
+    unidades e somar 100, e com uma unidade so ha uma resposta. Perguntar
+    seria fazer alguem digitar "100" para descobrir que nao havia escolha.
+
+    So age sobre linha do tempo VAZIA. Com duas ou mais unidades o rateio e
+    escolha, e continua pendente ate alguem informar.
+    """
+    unidades = tuple(unit_ids)
+    if data.rules or len(unidades) != 1:
+        return data
+    regra = ConfiguredDistributionRule(
+        id="unica",
+        label="Unidade única",
+        effective_from=None,
+        effective_until=None,
+        shares=validate_shares({unidades[0]: "100"}, unidades),
+        created_at=now,
+    )
+    return validate_storage_data(replace(data, rules=(regra,)), unidades)
+
+
+async def _async_seed_single_unit(
+    store: Any,
+    data: DistributionStorageData,
+    unit_ids: Sequence[str],
+    clock: Callable[[], datetime] | None,
+) -> DistributionStorageData:
+    agora = (clock or (lambda: datetime.now(ZoneInfo(data.timezone))))()
+    semeado = single_unit_rule(data, unit_ids, agora)
+    if semeado is data:
+        return data
+    try:
+        await store.async_save(serialize_storage_data(semeado, unit_ids))
+    except Exception:
+        _LOGGER.error("Could not store the single unit distribution", exc_info=True)
+    return semeado
 
 
 async def _async_reconcile_stored(
@@ -463,7 +567,23 @@ async def _async_reconcile_stored(
         return None
     try:
         antiga = deserialize_storage_data(raw_data, anteriores)
-        data = reconcile_shares_with_units(antiga, unit_ids)
+        # Sem unidade nenhuma nao ha o que ratear: a linha do tempo volta a
+        # vazia. Sem isto, excluir a ultima unidade deixava uma regra sem dono
+        # que nunca mais validava — e o rateio de tudo que fosse criado
+        # depois nascia quebrado.
+        if not tuple(unit_ids):
+            data = replace(antiga, rules=())
+        else:
+            data = reconcile_shares_with_units(antiga, unit_ids)
+            # A regra automatica de unidade unica ninguem escolheu. Se a
+            # unidade que ela favorecia saiu, ela deixa de somar 100 e nao
+            # descreve mais nada: sai junto, e a unidade que sobrou recebe a
+            # sua propria regra automatica, ou o rateio fica pendente.
+            data = replace(data, rules=tuple(
+                regra for regra in data.rules
+                if regra.id != "unica"
+                or sum(regra.shares.values(), Decimal("0")) == Decimal("100")
+            ))
         payload = serialize_storage_data(data, unit_ids)
     except DistributionValidationError:
         return None

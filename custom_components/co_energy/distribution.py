@@ -202,13 +202,10 @@ def validate_storage_data(
     validate_timezone(data.timezone)
     if not isinstance(data.rules, tuple):
         raise DistributionValidationError("rules must be a tuple")
-    # Sem regra nenhuma so vale enquanto nao ha unidade: o rateio ainda nao
-    # tem o que ratear. Com unidade declarada, uma linha do tempo vazia seria
-    # perda de historico, nao instalacao nova.
-    if not data.rules and expected:
-        raise DistributionValidationError(
-            "rules must be a non-empty tuple when there are units"
-        )
+    # Linha do tempo sem regra e "rateio ainda nao informado", e e valida com
+    # qualquer numero de unidades. Recusa-la fazia o rateio de uma instalacao
+    # nova quebrar para sempre no instante em que a primeira unidade era
+    # criada — e com ele o fluxo energetico e o payback.
 
     normalized: list[ConfiguredDistributionRule] = []
     seen_ids: set[str] = set()
@@ -288,15 +285,16 @@ def distribution_from_seed(
             "configured units are unavailable in the energy model"
         ) from error
     configuration = model.get("credit_distribution")
-    if configuration is None and not unit_ids:
-        # Instalação que ainda não criou unidade nenhuma não tem rateio a
-        # declarar, e isso não é erro: é o estado correto de quem acabou de
-        # instalar. Exigir o histórico aqui vinha de quando o modelo chegava
-        # pronto do YAML — e fazia a integração nem subir numa instalação
-        # nova, com "Could not bootstrap configured distribution Store".
+    if configuration is None:
+        # Modelo sem rateio declarado — toda instalação configurada pela tela
+        # — não é erro. Exigir o histórico aqui vinha de quando o modelo
+        # chegava pronto do YAML, e fazia a integração nem subir numa
+        # instalação nova ("Could not bootstrap configured distribution
+        # Store").
         #
-        # A linha do tempo nasce vazia e ganha a primeira regra quando a
-        # primeira unidade existir.
+        # A linha do tempo nasce vazia. Com uma unidade só, quem a recebe
+        # preenche a única resposta possível; com duas ou mais, fica pendente
+        # até alguém escolher.
         return DistributionStorageData(1, timezone or FALLBACK_TIMEZONE, ())
     if not isinstance(configuration, Mapping):
         raise DistributionValidationError("credit_distribution must be a mapping")

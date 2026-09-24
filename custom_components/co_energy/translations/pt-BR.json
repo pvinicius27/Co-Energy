@@ -2,16 +2,55 @@
   "config": {
     "step": {
       "user": {
-        "title": "Gestão de Energia",
-        "description": "Deixe os dois campos em branco para começar do zero: as unidades, os sensores e o rateio são criados pela própria dashboard. Os campos existem para quem já tem os modelos em arquivo e quer partir deles.",
+        "title": "Gestão de Energia — primeira unidade",
+        "description": "Cadastre a primeira unidade: uma casa, um apartamento, uma loja. Depois dá para cadastrar outras, e tudo pode ser mudado em Configurar, na página da integração.",
         "data": {
-          "model_path": "Modelo de energia (opcional)",
-          "financial_model_path": "Modelo financeiro (opcional)"
+          "nome": "Nome da unidade",
+          "gera": "Esta unidade gera energia (tem placas solares)",
+          "tem_medidor": "Esta unidade tem medidor no Home Assistant"
+        },
+        "data_description": {
+          "tem_medidor": "Desmarque se a unidade só é acompanhada pela fatura da distribuidora. Ela aparece com os dados oficiais, sem pedir sensor."
+        }
+      },
+      "unidade_outra": {
+        "title": "Outra unidade",
+        "description": "Cadastre mais uma unidade.",
+        "data": {
+          "nome": "Nome da unidade",
+          "gera": "Esta unidade gera energia (tem placas solares)",
+          "tem_medidor": "Esta unidade tem medidor no Home Assistant"
+        },
+        "data_description": {
+          "tem_medidor": "Desmarque se a unidade só é acompanhada pela fatura da distribuidora. Ela aparece com os dados oficiais, sem pedir sensor."
+        }
+      },
+      "sensores_iniciais": {
+        "title": "Sensores de {unidade}",
+        "description": "{dica} Escolha ao menos um sensor; o que ficar em branco simplesmente não aparece na tela. Os sensores de energia precisam ser acumulados (kWh), como os do painel de Energia do Home Assistant.",
+        "data": {
+          "consumption_energy": "Consumo (kWh)",
+          "generation_energy": "Geração (kWh)",
+          "export_energy": "Exportação para a rede (kWh)",
+          "import_energy": "Importação da rede (kWh)",
+          "voltage": "Tensão (V) — opcional",
+          "current": "Corrente (A) — opcional",
+          "power": "Potência (W) — opcional",
+          "power_factor": "Fator de potência — opcional",
+          "frequency": "Frequência (Hz) — opcional"
+        }
+      },
+      "mais": {
+        "title": "Unidades cadastradas",
+        "description": "Cadastradas até aqui: {unidades}.",
+        "menu_options": {
+          "concluir": "Concluir e abrir a Gestão de Energia",
+          "unidade_outra": "Cadastrar outra unidade"
         }
       },
       "reconfigure": {
-        "title": "Gestão de Energia",
-        "description": "Mude ou apague os caminhos dos arquivos. Apagar um campo faz a integração deixar de ler aquele arquivo e passar a usar apenas o que já está guardado no Home Assistant.",
+        "title": "Modelos em arquivo",
+        "description": "Só para quem parte de modelos já escritos. Apagar um campo faz a integração deixar de ler aquele arquivo e usar apenas o que está guardado no Home Assistant.",
         "data": {
           "model_path": "Modelo de energia (opcional)",
           "financial_model_path": "Modelo financeiro (opcional)"
@@ -21,12 +60,181 @@
     "error": {
       "model_path_required": "Informe o caminho do modelo de energia.",
       "model_path_invalid": "Não foi possível carregar este modelo. Confira o caminho e se o arquivo é um modelo de energia válido.",
-      "financial_model_path_invalid": "Não foi possível carregar o modelo financeiro. Confira o caminho, ou deixe o campo em branco para seguir sem ele."
+      "financial_model_path_invalid": "Não foi possível carregar o modelo financeiro. Confira o caminho, ou deixe o campo em branco para seguir sem ele.",
+      "name_required": "Dê um nome à unidade.",
+      "sensor_required": "Escolha ao menos um sensor. Se a unidade não tem medidor no Home Assistant, volte e desmarque essa opção.",
+      "sensor_refused": "Um dos sensores escolhidos não pôde ser usado para esta grandeza.",
+      "second_generator": "Outra unidade já gera energia. Só uma unidade pode ser a geradora: desmarque \"gera energia\" nela antes.",
+      "unknown": "Não foi possível salvar. Confira os campos e tente de novo."
     },
     "abort": {
-      "single_instance_allowed": "A Gestão de Energia já está configurada.",
+      "single_instance_allowed": "A Gestão de Energia já está configurada. Para mudar algo, use Configurar na página da integração.",
       "invalid_configuration": "A configuração existente no configuration.yaml não pôde ser carregada.",
       "reconfigure_successful": "Caminhos atualizados."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configurar a Gestão de Energia",
+        "description": "O que você quer mudar? O painel se atualiza sozinho depois de salvar.",
+        "menu_options": {
+          "unidade_nova": "Adicionar unidade",
+          "unidade_editar": "Editar unidade (nome, papel, cor, foto)",
+          "sensores": "Adicionar sensor à unidade",
+          "rateio": "Rateio dos créditos",
+          "tarifa": "Tarifa",
+          "investimento": "Investimento no sistema solar",
+          "horario": "Horário de corte das leituras",
+          "unidade_excluir": "Excluir unidade"
+        }
+      },
+      "unidade_nova": {
+        "title": "Adicionar unidade",
+        "description": "Se ela tiver medidor, a próxima tela pede os sensores.",
+        "data": {
+          "nome": "Nome da unidade",
+          "gera": "Esta unidade gera energia (tem placas solares)",
+          "tem_medidor": "Esta unidade tem medidor no Home Assistant"
+        },
+        "data_description": {
+          "tem_medidor": "Desmarque se a unidade só é acompanhada pela fatura da distribuidora. Ela aparece com os dados oficiais, sem pedir sensor."
+        }
+      },
+      "unidade_editar": {
+        "title": "Editar unidade",
+        "description": "Escolha a unidade.",
+        "data": {
+          "unidade": "Unidade"
+        }
+      },
+      "unidade_dados": {
+        "title": "Editar unidade — {unidade}",
+        "description": "Mudar o nome não mexe no histórico. Mudar se a unidade gera energia muda as grandezas que ela mede.",
+        "data": {
+          "nome": "Nome da unidade",
+          "gera": "Esta unidade gera energia (tem placas solares)",
+          "tem_medidor": "Esta unidade tem medidor no Home Assistant",
+          "cor": "Cor nos gráficos",
+          "foto": "Foto da unidade",
+          "remover_foto": "Remover a foto atual"
+        },
+        "data_description": {
+          "tem_medidor": "Desmarque se a unidade só é acompanhada pela fatura da distribuidora. Ela aparece com os dados oficiais, sem pedir sensor.",
+          "foto": "{foto_info}"
+        }
+      },
+      "unidade_excluir": {
+        "title": "Excluir unidade",
+        "description": "A unidade sai da tela e dos cálculos. As faturas guardadas continuam guardadas, e o histórico dos sensores continua no Home Assistant.",
+        "data": {
+          "unidade": "Unidade",
+          "confirmar": "Sim, excluir esta unidade"
+        }
+      },
+      "sensores": {
+        "title": "Adicionar sensor à unidade",
+        "description": "Escolha a unidade.",
+        "data": {
+          "unidade": "Unidade"
+        }
+      },
+      "sensores_unidade": {
+        "title": "Adicionar sensor à unidade — {unidade}",
+        "description": "{dica} Cada campo é o sensor ATUAL. Deixe em branco o que não existir: some da tela em vez de aparecer vazio.",
+        "data": {
+          "consumption_energy": "Consumo (kWh)",
+          "generation_energy": "Geração (kWh)",
+          "export_energy": "Exportação para a rede (kWh)",
+          "import_energy": "Importação da rede (kWh)",
+          "voltage": "Tensão (V) — opcional",
+          "current": "Corrente (A) — opcional",
+          "power": "Potência (W) — opcional",
+          "power_factor": "Fator de potência — opcional",
+          "frequency": "Frequência (Hz) — opcional"
+        },
+        "sections": {
+          "medidor_anterior": {
+            "name": "Medidor anterior (troca de medidor)",
+            "description": "Use quando o medidor físico foi trocado: informe qual sensor era usado antes e até quando. Antes dessa data vale o sensor anterior; a partir dela, o atual.",
+            "data": {
+              "grandeza": "Grandeza",
+              "sensor_anterior": "Sensor anterior",
+              "usado_ate": "Usado até"
+            },
+            "data_description": {
+              "usado_ate": "O corte cai na hora cheia.\n\n**Medidores anteriores já registrados:** {historico}"
+            }
+          }
+        }
+      },
+      "rateio": {
+        "title": "Rateio dos créditos",
+        "description": "{situacao} Quanto da energia excedente vai para cada unidade; a soma precisa dar 100%.",
+        "data": {
+          "a_partir_de": "A partir de (opcional)"
+        },
+        "data_description": {
+          "a_partir_de": "Em branco, o novo rateio vale a partir de agora; com data futura, fica agendado. Os meses anteriores continuam com o rateio que valia na época.\n\n**Histórico:** {historico}"
+        }
+      },
+      "tarifa": {
+        "title": "Tarifa",
+        "description": "Tarifa de energia sem impostos, em R$/kWh, usada para estimar o custo do ciclo aberto enquanto a fatura não chega. Cada tarifa vale da sua data até a próxima: informar uma nova não muda os meses anteriores.",
+        "data": {
+          "vigencia": "Vale a partir de",
+          "valor": "Tarifa (R$/kWh)"
+        },
+        "data_description": {
+          "valor": "Informadas: {atuais}. Para apagar uma, escolha a data dela e deixe o valor em branco."
+        }
+      },
+      "investimento": {
+        "title": "Investimento no sistema solar",
+        "description": "Quanto custou o sistema solar e quando foi pago. É o que permite calcular o payback.",
+        "data": {
+          "valor": "Valor pago (R$)",
+          "mes": "Data do pagamento",
+          "limpar": "Apagar o investimento informado"
+        }
+      },
+      "horario": {
+        "title": "Horário de corte das leituras",
+        "description": "A hora do dia usada para alinhar as datas de leitura da fatura com os sensores. Mudar recalcula todo o histórico de ciclos.",
+        "data": {
+          "horario": "Horário"
+        }
+      }
+    },
+    "error": {
+      "name_required": "Dê um nome à unidade.",
+      "sensor_required": "Escolha ao menos um sensor. Se a unidade não tem medidor no Home Assistant, volte e desmarque essa opção.",
+      "sensor_refused": "Um dos sensores escolhidos não pôde ser usado para esta grandeza.",
+      "second_generator": "Outra unidade já gera energia. Só uma unidade pode ser a geradora: desmarque \"gera energia\" nela antes.",
+      "unknown": "Não foi possível salvar. Confira os campos e tente de novo.",
+      "shares_total": "Os percentuais precisam somar exatamente 100%.",
+      "share_invalid": "Cada percentual precisa ficar entre 0 e 100.",
+      "distribution_refused": "O rateio não foi aceito. Se já existe um rateio agendado para o futuro, ele precisa começar a valer antes; e para agendar é preciso ter um rateio vigente.",
+      "time_invalid": "Horário inválido.",
+      "color_invalid": "Cor inválida.",
+      "image_invalid": "A foto não pôde ser usada. Envie um JPG, PNG ou WebP de até 12 MB.",
+      "swap_when_invalid": "Informe a data e a hora em que o medidor foi trocado.",
+      "swap_refused": "A troca não foi aceita: a data precisa ser posterior ao início do medidor atual, e o sensor novo precisa ser diferente do atual.",
+      "period_invalid": "Informe a data do pagamento.",
+      "amount_invalid": "Informe um valor maior que zero, por exemplo 25000,00.",
+      "tariff_invalid": "Informe a tarifa em R$/kWh, maior que zero, por exemplo 0,65.",
+      "history_keep": "Esta grandeza já teve troca de medidor e não pode ficar sem sensor: o registro dos medidores anteriores depende dela.",
+      "previous_incomplete": "Para registrar o medidor anterior, preencha os três campos: grandeza, sensor anterior e até quando.",
+      "previous_needs_current": "Essa grandeza ainda não tem sensor atual. Escolha o sensor atual dela no campo acima.",
+      "previous_same": "O sensor anterior é o mesmo que o atual.",
+      "unit_without_meter": "Esta unidade está marcada como sem medidor no Home Assistant. Para incluir sensores, marque \"Esta unidade tem medidor no Home Assistant\" em Editar unidade.",
+      "confirm_required": "Marque a confirmação para excluir.",
+      "unit_has_share": "Esta unidade tem {percentual}% do rateio. Leve o percentual dela a zero em \"Rateio dos créditos\" antes de excluí-la — senão as outras deixam de somar 100%."
+    },
+    "abort": {
+      "runtime_unavailable": "A integração ainda não terminou de carregar. Tente de novo em alguns segundos.",
+      "distribution_unavailable": "O rateio guardado não pôde ser lido. Veja o registro do Home Assistant.",
+      "save_failed": "Não foi possível salvar. Veja o registro do Home Assistant."
     }
   }
 }

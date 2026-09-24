@@ -240,6 +240,19 @@ def build_invoice_document(
     )
 
 
+def _bill_summary(fatura: Mapping[str, Any]) -> dict[str, Any]:
+    """O que a tela mostra de uma fatura: mês, consumo, valor e como apagá-la."""
+    identificacao = fatura.get("identificacao") or {}
+    consumo = fatura.get("consumo") or {}
+    faturamento = fatura.get("faturamento") or {}
+    return {
+        "digest": digest_of(fatura),
+        "reference": identificacao.get("referencia"),
+        "consumption_kwh": consumo.get("total_kwh"),
+        "total_amount": faturamento.get("valor_total"),
+    }
+
+
 def summarize_ucs(
     faturas: Any, ucs_vistas: Mapping[str, str], model: Mapping[str, Any]
 ) -> list[dict[str, Any]]:
@@ -275,6 +288,9 @@ def summarize_ucs(
             "first_reference": primeira,
             "last_reference": ultima,
             "unit_id": unit_id,
+            # Uma a uma, da mais recente para a mais antiga: é a lista de onde
+            # se apaga a fatura que entrou errada.
+            "invoices": [_bill_summary(f) for f in reversed(ordenadas)],
         })
     # Sem dono primeiro: e o que pede resposta.
     resumo.sort(key=lambda item: (item["unit_id"] is not None, item["first_reference"] or ""))
@@ -504,6 +520,31 @@ class InvoiceStorageManager:
                 updated_at=now,
             ))
         return nova
+
+    async def async_remove(self, digest: str, *, now: datetime) -> bool:
+        """Apaga a fatura que veio deste PDF. Return True if one was removed.
+
+        Para a fatura que entrou errada — PDF de outra pessoa, leitura ruim.
+        Reenviar o mesmo PDF a traz de volta igual: nada aqui é irreversível
+        para quem ainda tem o arquivo.
+        """
+        if not isinstance(digest, str) or not digest:
+            raise InvoiceStorageError("the bill to remove is not identified")
+        async with self._lock:
+            restantes = tuple(
+                f for f in self._stored.faturas if digest_of(f) != digest
+            )
+            if len(restantes) == len(self._stored.faturas):
+                return False
+            await self._async_save(StoredInvoices(
+                faturas=restantes,
+                ucs_vistas=self._stored.ucs_vistas,
+                # Sem fatura nenhuma, o storage não pode seguir como fonte
+                # oficial: a tela ficaria sem dado e sem dizer por quê.
+                em_uso=self._stored.em_uso and bool(restantes),
+                updated_at=now,
+            ))
+        return True
 
     async def async_set_in_use(self, em_uso: bool, *, now: datetime) -> None:
         """Turn the stored bills into the official source, or back to the file."""

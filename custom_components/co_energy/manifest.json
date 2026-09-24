@@ -1,7 +1,7 @@
 {
   "domain": "co_energy",
   "name": "Gestão de Energia",
-  "version": "0.5.1",
+  "version": "0.6.13",
   "config_flow": true,
   "documentation": "https://github.com/pvinicius27/Co-Energy",
   "issue_tracker": "https://github.com/pvinicius27/Co-Energy/issues",
@@ -13,7 +13,8 @@
   "dependencies": [
     "recorder",
     "http",
-    "panel_custom"
+    "panel_custom",
+    "file_upload"
   ],
   "requirements": [
     "pdfplumber==0.11.10"
