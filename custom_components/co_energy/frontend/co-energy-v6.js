@@ -7998,7 +7998,12 @@
       const regra = this._distributionData?.current;
       if (!regra) return "não informado";
       const partes = Object.entries(regra.shares ?? {})
-        .map(([id, valor]) => `${this._unitLabel(id)} ${this._formatNumber(Number(valor), 0, 1)}%`);
+        // A ordem e (valor, MAXIMO, minimo). Invertida, pede minimo 1 e
+        // maximo 0 — e o Intl recusa com "maximumFractionDigits value is out
+        // of range", derrubando a tela inteira por causa de um resumo.
+        .map(([id, valor]) => (
+          `${this._unitLabel(id)} ${this._formatNumber(Number(valor), 1, 0)}%`
+        ));
       return partes.length ? partes.join(" · ") : "não informado";
     }
 
