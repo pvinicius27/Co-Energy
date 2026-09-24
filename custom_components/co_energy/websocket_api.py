@@ -685,7 +685,28 @@ async def _async_handle_get_units(
         )
         return
     try:
-        serialized = serialize_unit_catalog(runtime.model)
+        # Fatura e investimento não moram no modelo: vêm do storage de
+        # faturas e dos ajustes. A tela precisa dos três juntos para saber o
+        # que mostrar, e pedi-los em chamadas separadas faria a primeira
+        # resposta decidir com metade da informação.
+        manager = runtime.invoice_manager
+        tem_fatura = bool(
+            (manager is not None and manager.stored.faturas)
+            or runtime.billing_json_path
+        )
+        ajustes = (
+            runtime.settings_manager.settings
+            if runtime.settings_manager is not None
+            else None
+        )
+        tem_investimento = bool(
+            ajustes is not None and ajustes.solar_investment is not None
+        )
+        serialized = serialize_unit_catalog(
+            runtime.model,
+            has_billing=tem_fatura,
+            has_investment=tem_investimento,
+        )
     except UnitCatalogSerializationError:
         _LOGGER.error("Could not serialize the configured unit catalog", exc_info=True)
         connection.send_error(

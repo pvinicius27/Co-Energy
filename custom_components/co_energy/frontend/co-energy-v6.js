@@ -533,6 +533,7 @@
       this._energyFlowLoading = false;
       this._energyFlowRequestToken = 0;
       this._unitCatalog = null;
+      this._unitCapabilities = null;
       this._unitCatalogRequest = null;
       this._paybackChart = null;
       this._paybackResizeObserver = null;
@@ -2952,6 +2953,26 @@
     // abas apareciam, a pessoa clicava numa delas, e so entao o aviso de ir
     // para a Configuracao surgia por cima — atraso que parecia falha. Sem
     // catalogo, a tela mostra o que ja e certo e espera o resto.
+    // O que esta instalacao e capaz de mostrar, dito pelo backend. Enquanto
+    // o catalogo nao chega, tudo e falso: "nao sei" nao pode virar promessa.
+    //
+    // A tela NAO deduz capacidade a partir de dado. Deduzir foi o que fez o
+    // payback aparecer numa casa sem placa: ter fatura nao inventa geracao.
+    get _capabilities() {
+      const bruto = this._unitCapabilities;
+      const vazio = {
+        units: false, generation: false, distribution: false,
+        measurement: false, instant_readings: false,
+        billing: false, investment: false,
+      };
+      if (!bruto || typeof bruto !== "object") return vazio;
+      const resultado = { ...vazio };
+      for (const chave of Object.keys(vazio)) {
+        resultado[chave] = bruto[chave] === true;
+      }
+      return resultado;
+    }
+
     get _catalogPending() {
       return !Array.isArray(this._unitCatalog);
     }
@@ -2974,8 +2995,13 @@
       return rotulos;
     }
 
+    // Mantido para quem ainda o consulta, agora apoiado na capacidade em vez
+    // de deduzir. A versao antiga devolvia VERDADEIRO enquanto o catalogo nao
+    // chegava — "nao sei" virava "tem" —, e o fluxo energetico tentava
+    // carregar antes de existir geracao, falhando com "nao foi possivel
+    // carregar o fluxo desta referencia".
     get _hasGeneration() {
-      return !Array.isArray(this._unitCatalog) || this._generatorUnit !== null;
+      return this._capabilities.generation;
     }
 
     // Quais unidades existem, segundo o modelo. A lista escrita na
@@ -3044,6 +3070,11 @@
           this._generatorUnit = typeof gerador === "string" && gerador.trim()
             ? gerador
             : null;
+          // O que esta instalacao e capaz de mostrar. Vem do backend porque a
+          // regra e de dominio — "rateio precisa de mais de uma unidade" nao
+          // e decisao de tela —, e chega junto com o catalogo porque as duas
+          // respostas decidem a mesma coisa: o que desenhar.
+          this._unitCapabilities = response.data.capabilities ?? null;
           this._render();
           return this._unitCatalog;
         } catch (error) {
@@ -4758,6 +4789,7 @@
         if (this._settingsModal === "sensores") this._loadSensors({ force: true });
         if (this._settingsModal === "unidades") this._loadModelConfig({ force: true });
         if (this._settingsModal === "extracao") this._loadInvoices({ force: true });
+        if (this._settingsModal === "rateio") this._loadDistribution({ force: true });
         return;
       }
       if (action === "model-import") {
@@ -6368,15 +6400,24 @@
       if (this._isEmptyInstallation || this._catalogPending) {
         return [["configuracao", "mdi:cog-outline", "Configuração"]];
       }
+      // Cada aba declara de que DEPENDE, e o backend diz o que existe. A
+      // diferenca entre sumir e ficar pendente e a que organiza a leitura:
+      //
+      //   nao existe     a instalacao nao tem a capacidade. Payback numa
+      //                  casa sem placa nao esta indisponivel — ele nao
+      //                  existe, e prometer a aba seria mentir.
+      //
+      //   falta informar a capacidade existe e o dado nao chegou. Auditoria
+      //                  sem fatura e isso: a aba fica e diz o que falta.
+      //
+      // Auditoria e Visao geral ficam SEMPRE que ha unidade, porque as duas
+      // sabem dizer o que esta faltando. Sumi-las esconderia o caminho.
+      const podem = this._capabilities;
       return [
         ["overview", "mdi:view-dashboard-outline", "Visão geral"],
         ["units", "mdi:home-city-outline", "Unidades & análise"],
         ["auditoria", "mdi:scale-balance", "Auditoria"],
-        // O payback e do sistema solar. Numa instalacao que so acompanha o
-        // proprio consumo contra a conta da distribuidora ele nao esta
-        // indisponivel — ele nao existe, e por isso some em vez de aparecer
-        // desligado como acontece no modo reduzido.
-        ...(this._hasGeneration
+        ...(podem.generation
           ? [["payback", "mdi:solar-power-variant-outline", "Payback"]]
           : []),
         ["diagnostico", "mdi:heart-pulse", "Saúde dos dados"],
@@ -7769,6 +7810,19 @@
           "Quanto custou e quando foi pago. É o que o payback tem a recuperar.",
           this._investmentLauncherSummary(dados),
         ]] : []),
+        // O rateio so existe com geradora E mais de uma unidade: numa casa
+        // sozinha, distribuir credito e devolve-lo a quem o gerou.
+        //
+        // O editor sempre existiu, e so abria pela Visao geral — que numa
+        // instalacao nova estava vazia JUSTAMENTE por falta de rateio. Ele
+        // estava trancado do lado de dentro.
+        ...(this._capabilities.distribution ? [[
+          "rateio",
+          "mdi:chart-donut",
+          "Rateio entre as unidades",
+          "Qual percentual do crédito cabe a cada unidade, e desde quando.",
+          this._distributionLauncherSummary(),
+        ]] : []),
         [
           "extracao",
           "mdi:file-pdf-box",
@@ -7844,6 +7898,7 @@
         unidades: "Unidades desta instalação",
         sensores: "Sensores das unidades",
         investimento: "Investimento no sistema solar",
+        rateio: "Rateio entre as unidades",
         extracao: "Extração de faturas",
       };
       if (!titulos[vista]) return null;
@@ -7893,6 +7948,12 @@
         corpo.append(this._renderUnitsPanel());
       } else if (vista === "sensores") {
         corpo.append(this._renderSensorsPanel());
+      } else if (vista === "rateio") {
+        // O mesmo editor que a Visao geral abre. Ele sempre existiu; o que
+        // faltava era uma porta que nao dependesse de a Visao geral ter
+        // conteudo — e numa instalacao nova ela nao tem, justamente por falta
+        // de rateio.
+        corpo.append(this._renderDistribution({ modal: true }));
       } else {
         corpo.append(this._renderInvoicePanel());
       }
@@ -7931,6 +7992,14 @@
         ));
       }
       return acoes;
+    }
+
+    _distributionLauncherSummary() {
+      const regra = this._distributionData?.current;
+      if (!regra) return "não informado";
+      const partes = Object.entries(regra.shares ?? {})
+        .map(([id, valor]) => `${this._unitLabel(id)} ${this._formatNumber(Number(valor), 0, 1)}%`);
+      return partes.length ? partes.join(" · ") : "não informado";
     }
 
     _invoicesLauncherSummary() {
@@ -10974,10 +11043,19 @@
       // As quatro unidades primeiro: elas sao o estado do sistema, e o fluxo
       // e o rateio explicam como se chegou nele.
       content.append(grid);
-      if (this._hasGeneration) {
+      // Fluxo e rateio nao tem a mesma condicao. O fluxo precisa de geracao;
+      // o rateio precisa de geracao E de mais de uma unidade — numa casa
+      // sozinha nao ha para quem distribuir, e a rosca aparecia dizendo
+      // "rateio configurado indisponivel" sobre algo que nao existe.
+      const podem = this._capabilities;
+      if (podem.generation) {
         const linha = this._element("div", "overview-flow-row");
-        linha.append(this._renderEnergyFlow(), this._renderDistributionDonut());
-        linha.setAttribute("aria-label", "Fluxo energético e rateio");
+        linha.append(this._renderEnergyFlow());
+        if (podem.distribution) linha.append(this._renderDistributionDonut());
+        linha.setAttribute(
+          "aria-label",
+          podem.distribution ? "Fluxo energético e rateio" : "Fluxo energético",
+        );
         content.append(linha);
       }
       content.append(modalHost);

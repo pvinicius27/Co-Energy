@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from .capabilities import installation_capabilities
 from .energy_model import (
     EnergyModelError,
     get_generator_unit_id,
@@ -25,12 +26,23 @@ def _boolean(value: Any, field: str) -> bool:
     return value
 
 
-def serialize_unit_catalog(model: Mapping[str, Any]) -> dict[str, Any]:
+def serialize_unit_catalog(
+    model: Mapping[str, Any],
+    *,
+    has_billing: bool = False,
+    has_investment: bool = False,
+) -> dict[str, Any]:
     """Serialize the declared units through an explicit allowlist.
 
     O papel viaja junto porque e ele que diz quem gera. Sem isso a interface
     nao tinha como saber, e trazia o nome de uma unidade escrito no proprio
     codigo — o que amarrava o card a esta instalacao.
+
+    As CAPACIDADES viajam pelo mesmo motivo, um nivel acima: a tela nao tem
+    como saber sozinha que uma casa sem geracao nao tem payback, nem que uma
+    casa sozinha nao tem rateio. Ela sabia lidar com o que existe, e nao com
+    o que nao existe — e mostrava oito abas vazias para quem acabou de
+    instalar.
     """
     try:
         unit_ids = get_unit_ids(model)
@@ -54,7 +66,13 @@ def serialize_unit_catalog(model: Mapping[str, Any]) -> dict[str, Any]:
         raise UnitCatalogSerializationError(
             "configured units are unavailable in the energy model"
         ) from error
-    return {"units": units, "generator_unit_id": _generator_or_none(model)}
+    return {
+        "units": units,
+        "generator_unit_id": _generator_or_none(model),
+        "capabilities": installation_capabilities(
+            model, has_billing=has_billing, has_investment=has_investment
+        ),
+    }
 
 
 def _declared_color(model: Mapping[str, Any], unit_id: str) -> str | None:
