@@ -1366,7 +1366,7 @@
           if (anos.length) this._historyReferences.year = String(Math.max(...anos));
           this._historyRequestToken += 1;
         }
-      } else if (this._historyMode !== "cycle" && this._historyMode !== "year") {
+      } else if (this._historyMode !== "year") {
         this._historyMode = "year";
         this._historyRequestToken += 1;
       }
@@ -4753,7 +4753,7 @@
       if (this._selectedUnit) this._historyModeChosen.add(this._selectedUnit);
       // Escolha feita: ela vale dali em diante, e nao ha padrao a desfazer.
       this._historyModeAntesDoPadrao = null;
-      if (this._unitIsBillingOnly() && mode !== "cycle" && mode !== "year") return;
+      if (this._unitIsBillingOnly() && mode !== "year") return;
       if (mode === "month" && this._historyReferences.month === null) {
         this._historyReferences.month = this._historyReferences.day.slice(0, 7);
       }
@@ -4861,6 +4861,7 @@
         const page = button.dataset.page;
         if (this._billingUnavailable && !PAGES_WITHOUT_BILLING.has(page)) return;
         if (this._pages().some((item) => item[0] === page)) {
+          this._pageJustChanged = page !== this._page;
           this._page = page;
           this._storeView();
           this._render();
@@ -4873,6 +4874,7 @@
         return;
       }
       if (action === "open-unit") {
+        this._pageJustChanged = this._page !== "units";
         this._page = "units";
         this._storeView();
         this._selectUnit(button.dataset.unit);
@@ -5845,9 +5847,11 @@
       const point = data.series?.[0]?.points?.[entry?.dataIndex];
       const cycle = point?.cycle;
       if (!cycle || point.value === null || point.value === undefined) return "";
+      // Linha sem dado sai do balao: "Indisponivel" repetido em tres linhas
+      // era ruido, e nao informacao.
       const period = cycle.billing_cycle_period?.start && cycle.billing_cycle_period?.end
         ? `${this._formatHistoryCycleDay(cycle.billing_cycle_period.start)} → ${this._formatHistoryCycleDay(cycle.billing_cycle_period.end)}`
-        : "Indisponível";
+        : null;
       const diagnostic = cycle.billing_reading_diagnostic ?? {};
       const diagnosticLabels = {
         compatible: "Compatível com o ciclo",
@@ -5856,11 +5860,14 @@
       };
       const readingDays = Number.isInteger(diagnostic.reading_days)
         ? String(diagnostic.reading_days)
-        : "Indisponível";
+        : null;
       const billingMethod = this._formatBillingMethod(cycle.billing_method);
+      const situacao = diagnosticLabels[diagnostic.classification];
       const billingDetail = billingMethod
         ? `<small>Tipo de faturamento: ${this._escapeHtml(billingMethod)}</small>`
-        : `<small>Situação da leitura: ${this._escapeHtml(diagnosticLabels[diagnostic.classification] ?? diagnosticLabels.unknown)}</small>`;
+        : (situacao && diagnostic.classification !== "unknown"
+          ? `<small>Situação da leitura: ${this._escapeHtml(situacao)}</small>`
+          : "");
       const formattedOfficialReading = diagnostic.reported_previous
         ? this._formatDate(diagnostic.reported_previous)
         : null;
@@ -5874,7 +5881,7 @@
         && diagnostic.reported_previous
         ? `<small>Leitura anterior informada: ${this._escapeHtml(this._formatDate(diagnostic.reported_previous))}</small>`
         : "";
-      return `<section class="history-tooltip"><b>${this._escapeHtml(cycle.billing_reference)}</b><div><strong>Consumo oficial</strong><span>${this._escapeHtml(`${this._formatHistoryNumber(point.value)} kWh`)}</span></div><small>Período do ciclo: ${this._escapeHtml(period)}</small><small>Dias faturados: ${this._escapeHtml(readingDays)}</small>${billingDetail}${officialLastReading}${reportedPrevious}<small>Fonte: ${this._escapeHtml(this._distributorLabel())}</small><small>Classificação: Oficial</small></section>`;
+      return `<section class="history-tooltip"><b>${this._escapeHtml(cycle.billing_reference)}</b><div><strong>Consumo oficial</strong><span>${this._escapeHtml(`${this._formatHistoryNumber(point.value)} kWh`)}</span></div>${period ? `<small>Período do ciclo: ${this._escapeHtml(period)}</small>` : ""}${readingDays ? `<small>Dias faturados: ${this._escapeHtml(readingDays)}</small>` : ""}${billingDetail}${officialLastReading}${reportedPrevious}<small>Fonte: ${this._escapeHtml(this._distributorLabel())}</small><small>Classificação: Oficial</small></section>`;
     }
 
     _historyTooltip(data, params) {
@@ -6442,10 +6449,16 @@
       const dialogoAberto = Boolean(this._settingsModal);
       const posicoes = dialogoAberto ? this._captureSettingsScroll() : [];
       const foco = dialogoAberto ? this._settingsFocusKey() : null;
-      const rolagem = this._capturePageScroll();
+      // Trocar de aba e comecar outra pagina: ela abre no topo. Levar a
+      // rolagem da aba anterior para a nova, segurando a altura por 2,5 s,
+      // era o que fazia a Auditoria abrir "preta" no meio e depois pular.
+      const novaAba = this._pageJustChanged;
+      this._pageJustChanged = false;
+      const rolagem = novaAba ? null : this._capturePageScroll();
 
       this._renderShell();
 
+      if (novaAba) this._scrollPageToTop();
       this._restorePageScroll(rolagem);
       if (!dialogoAberto) return;
       this._restoreSettingsScroll(posicoes);
@@ -6471,6 +6484,15 @@
       }
       if (document.scrollingElement) rolaveis.push(document.scrollingElement);
       return rolaveis;
+    }
+
+    _scrollPageToTop() {
+      clearTimeout(this._alturaSeguraTimer);
+      this.style.minHeight = "";
+      if (!this.isConnected) return;
+      for (const alvo of this._pageScrollers()) {
+        if (alvo.scrollTop > 0) alvo.scrollTop = 0;
+      }
     }
 
     _capturePageScroll() {
@@ -12876,10 +12898,11 @@
       modeSelector.setAttribute("role", "group");
       modeSelector.setAttribute("aria-label", "Modo do histórico");
       for (const [mode, definition] of Object.entries(HISTORY_MODES)) {
-        // Sem sensor nao ha curva de dia nem de mes: os botoes somem em vez
-        // de ficarem apagados. Ano e ciclo saem das faturas. Quando a unidade
-        // ganha sensor, deixa de ser "so fatura" e os quatro voltam.
-        if (billingOnly && (mode === "day" || mode === "month")) continue;
+        // Sem sensor so existe o ano: todas as faturas lado a lado. O modo
+        // ciclo mostrava uma barra sozinha — o periodo, os dias e a leitura
+        // que ele trazia estao no balao de cada barra do ano. Quando a
+        // unidade ganha sensor, deixa de ser "so fatura" e os quatro voltam.
+        if (billingOnly && mode !== "year") continue;
         const button = this._button(
           definition.label,
           "history-mode",
@@ -12892,7 +12915,8 @@
         }
         modeSelector.append(button);
       }
-      heading.append(modeSelector);
+      // Um botao so nao e escolha: sem sensor, o seletor sai.
+      if (!billingOnly) heading.append(modeSelector);
 
       let controls = null;
       if (this._historyMode === "cycle") {

@@ -13,10 +13,10 @@ from .billing import BillingError, BillingRecord, get_billing_records, get_lates
 from .energy_model import (
     EnergyModelError,
     get_billing_boundary_time,
-    get_forecast_method,
     get_invoice_late_after_days,
     get_timezone_name,
     get_unit_definition,
+    is_bill_only_unit,
 )
 from .equatorial_adapter import EquatorialDocument
 from .periods import (
@@ -230,7 +230,7 @@ def get_closed_billing_cycles(
         timezone = get_timezone(get_timezone_name(model))
         boundary = parse_boundary_time(get_billing_boundary_time(model))
         unit = get_unit_definition(model, unit_id)
-        forecast_method = get_forecast_method(model, unit_id)
+        bill_only = is_bill_only_unit(model, unit_id)
     except (EnergyModelError, PeriodError) as error:
         raise BillingCycleError(
             f"could not configure billing cycles for {unit_id!r}"
@@ -246,11 +246,7 @@ def get_closed_billing_cycles(
             f"could not load billing cycles for {unit_id!r}"
         ) from error
 
-    capability = (
-        "billing_only"
-        if forecast_method == "bill_only_previous_cycle"
-        else "operational_history"
-    )
+    capability = "billing_only" if bill_only else "operational_history"
     seen_references: set[str] = set()
     ordered_records = sorted(
         records,
@@ -327,14 +323,14 @@ def get_billing_cycles(
         timezone = get_timezone(get_timezone_name(model))
         boundary = parse_boundary_time(get_billing_boundary_time(model))
         unit = get_unit_definition(model, unit_id)
-        forecast_method = get_forecast_method(model, unit_id)
+        bill_only = is_bill_only_unit(model, unit_id)
         late_after_days = get_invoice_late_after_days(model)
     except (EnergyModelError, PeriodError) as error:
         raise BillingCycleError(
             f"could not configure billing cycles for {unit_id!r}"
         ) from error
 
-    if forecast_method == "bill_only_previous_cycle":
+    if bill_only:
         return closed_cycles
     billing_key = unit.get("billing_key")
     if not isinstance(billing_key, str) or not billing_key.strip():

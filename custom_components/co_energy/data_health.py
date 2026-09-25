@@ -28,7 +28,6 @@ from .billing_cycle import (
 from .energy_model import (
     EnergyModelError,
     get_billing_boundary_time,
-    get_forecast_method,
     get_invoice_late_after_days,
     get_measurement_definition,
     get_measurement_logical_ids,
@@ -38,6 +37,7 @@ from .energy_model import (
     get_timezone_name,
     get_unit_definition,
     get_unit_ids,
+    is_bill_only_unit,
     get_unit_name,
 )
 from .equatorial_adapter import EquatorialDocument
@@ -420,7 +420,7 @@ def _invoice_health(
         awaiting_since = provisional.period.end
         invoice_status = provisional.invoice_status
     elif (
-        get_forecast_method(model, unit_id) == "bill_only_previous_cycle"
+        is_bill_only_unit(model, unit_id)
         and latest is not None
         and latest.next_reading is not None
     ):

@@ -646,6 +646,21 @@ def get_forecast_method(
     return method
 
 
+def is_bill_only_unit(model: Mapping[str, Any], unit_id: str) -> bool:
+    """Unidade acompanhada só pela fatura.
+
+    Duas formas de dizer a mesma coisa: o método de previsão declarado no
+    modelo, ou a caixa "tem medidor" desmarcada na configuração. Só a primeira
+    contava, e a unidade criada sem medidor perdia o período, os dias e a
+    situação da leitura que a fatura traz.
+    """
+    unit = get_unit_definition(model, unit_id)
+    return (
+        get_forecast_method(model, unit_id) == "bill_only_previous_cycle"
+        or unit.get("measured") is False
+    )
+
+
 def get_measurement_logical_ids(
     model: Mapping[str, Any], unit_id: str
 ) -> tuple[str, ...]:

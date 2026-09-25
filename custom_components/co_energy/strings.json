@@ -77,7 +77,7 @@
     "step": {
       "init": {
         "title": "Configurar a Gestão de Energia",
-        "description": "O que você quer mudar? O painel se atualiza sozinho depois de salvar.",
+        "description": "Escolha o que configurar. Depois de salvar, o painel se atualiza sozinho.",
         "menu_options": {
           "unidade_nova": "Adicionar unidade",
           "unidade_editar": "Editar unidade (nome, foto e sensores)",

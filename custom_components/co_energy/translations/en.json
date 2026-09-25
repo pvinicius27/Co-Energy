@@ -77,7 +77,7 @@
     "step": {
       "init": {
         "title": "Configure Energy Management",
-        "description": "What do you want to change? The panel refreshes by itself after saving.",
+        "description": "Choose what to set up. After saving, the panel refreshes by itself.",
         "menu_options": {
           "unidade_nova": "Add a unit",
           "unidade_editar": "Edit a unit (name, picture and sensors)",
