@@ -80,8 +80,7 @@
         "description": "What do you want to change? The panel refreshes by itself after saving.",
         "menu_options": {
           "unidade_nova": "Add a unit",
-          "unidade_editar": "Edit a unit (name, role, colour, picture)",
-          "sensores": "Add a sensor to a unit",
+          "unidade_editar": "Edit a unit (name, picture, meter and sensors)",
           "faturas": "Read bills (in the panel, Configuração tab)",
           "rateio": "Credit distribution",
           "tarifa": "Tariff",
@@ -133,15 +132,8 @@
           "confirmar": "Yes, delete this unit"
         }
       },
-      "sensores": {
-        "title": "Add a sensor to a unit",
-        "description": "Choose the unit.",
-        "data": {
-          "unidade": "Unit"
-        }
-      },
       "sensores_unidade": {
-        "title": "Add a sensor to a unit — {unidade}",
+        "title": "Sensors — {unidade}",
         "description": "{dica} Each field is the CURRENT sensor. Leave blank what does not exist: it disappears from the panel instead of showing empty.",
         "data": {
           "consumption_energy": "Consumption (kWh)",
@@ -181,13 +173,10 @@
       },
       "tarifa": {
         "title": "Tariff",
-        "description": "Energy tariff before taxes, per kWh, used to estimate the open cycle while the bill has not arrived. Each tariff applies from its date until the next one: entering a new one does not change earlier months.",
+        "description": "Energy tariff **before taxes** (TE + TUSD), per kWh. The payback uses it to value the compensated energy in months when the bill does not show it.\n\n**Where to find it:** on your bill, in the *Tarifa unitária* column of the consumption line; or in the [ANEEL tariff list](https://dadosabertos.aneel.gov.br/dataset/tarifas-distribuidoras-energia-eletrica).\n\n**Was there an adjustment?** Enter the new value with the date it started: each tariff applies from its date until the day before the next one. To fix one, pick the same date; to delete it, leave the value blank.\n\n**Entered:**{intervalos}{falta}",
         "data": {
           "vigencia": "Applies from",
-          "valor": "Tariff (per kWh)"
-        },
-        "data_description": {
-          "valor": "Entered: {atuais}. To delete one, pick its date and leave the value blank."
+          "valor": "Tariff before taxes (per kWh)"
         }
       },
       "investimento": {

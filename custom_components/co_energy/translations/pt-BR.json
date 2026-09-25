@@ -80,8 +80,7 @@
         "description": "O que você quer mudar? O painel se atualiza sozinho depois de salvar.",
         "menu_options": {
           "unidade_nova": "Adicionar unidade",
-          "unidade_editar": "Editar unidade (nome, papel, cor, foto)",
-          "sensores": "Adicionar sensor à unidade",
+          "unidade_editar": "Editar unidade (nome, foto, medidor e sensores)",
           "faturas": "Ler faturas (no painel, aba Configuração)",
           "rateio": "Rateio dos créditos",
           "tarifa": "Tarifa",
@@ -133,15 +132,8 @@
           "confirmar": "Sim, excluir esta unidade"
         }
       },
-      "sensores": {
-        "title": "Adicionar sensor à unidade",
-        "description": "Escolha a unidade.",
-        "data": {
-          "unidade": "Unidade"
-        }
-      },
       "sensores_unidade": {
-        "title": "Adicionar sensor à unidade — {unidade}",
+        "title": "Sensores — {unidade}",
         "description": "{dica} Cada campo é o sensor ATUAL. Deixe em branco o que não existir: some da tela em vez de aparecer vazio.",
         "data": {
           "consumption_energy": "Consumo (kWh)",
@@ -181,13 +173,10 @@
       },
       "tarifa": {
         "title": "Tarifa",
-        "description": "Tarifa de energia sem impostos, em R$/kWh, usada para estimar o custo do ciclo aberto enquanto a fatura não chega. Cada tarifa vale da sua data até a próxima: informar uma nova não muda os meses anteriores.",
+        "description": "Tarifa de energia **sem impostos** (TE + TUSD), em R$/kWh. O payback usa esta tarifa para dar valor à energia compensada nos meses em que a fatura não a mostra.\n\n**Onde achar:** na sua fatura, na coluna *Tarifa unitária* da linha de consumo; ou na [lista de tarifas da ANEEL](https://dadosabertos.aneel.gov.br/dataset/tarifas-distribuidoras-energia-eletrica), pela sua distribuidora.\n\n**Houve reajuste?** Informe o novo valor com a data em que começou: cada tarifa vale da sua data até a véspera da próxima, e as anteriores continuam valendo para os meses delas. Para corrigir, escolha a mesma data; para apagar, deixe o valor em branco.\n\n**Informadas:**{intervalos}{falta}",
         "data": {
           "vigencia": "Vale a partir de",
-          "valor": "Tarifa (R$/kWh)"
-        },
-        "data_description": {
-          "valor": "Informadas: {atuais}. Para apagar uma, escolha a data dela e deixe o valor em branco."
+          "valor": "Tarifa sem impostos (R$/kWh)"
         }
       },
       "investimento": {

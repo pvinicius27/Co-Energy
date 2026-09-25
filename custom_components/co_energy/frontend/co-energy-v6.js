@@ -4934,7 +4934,7 @@
       // veio ver o payback e descobriu que falta um numero.
       if (action === "payback-open-investment") {
         this._page = "configuracao";
-        this._settingsModal = button.dataset.modal || "investimento";
+        this._settingsModal = button.dataset.modal || "extracao";
         if (this._settingsModal === "extracao") this._loadInvoices({ force: true });
         this._storeView();
         this._refresh();
@@ -8141,14 +8141,6 @@
           "Fronteira do ciclo",
           "Horário que o sistema assume para toda leitura de medidor.",
           dados.boundary_time?.effective ?? "—",
-        ], [
-          "tarifa",
-          "mdi:cash-multiple",
-          "Tarifa da distribuidora",
-          "Base do preço usada quando a fatura do ciclo não publica a própria.",
-          vigenteAtual
-            ? `${tarifas[vigenteAtual]} · desde ${this._formatDate(vigenteAtual)}`
-            : "—",
         ]] : []),
         [
           "unidades",
@@ -8178,6 +8170,16 @@
           "Investimento no sistema solar",
           "Quanto custou e quando foi pago. É o que o payback tem a recuperar.",
           this._investmentLauncherSummary(dados),
+        ], [
+          // A tarifa informada so serve ao payback — a previsao do ciclo usa
+          // a da ultima fatura. Por isso anda com o investimento.
+          "tarifa",
+          "mdi:cash-multiple",
+          "Tarifa sem impostos",
+          "Por vigência. É com ela que o payback dá valor à energia compensada.",
+          vigenteAtual
+            ? `${tarifas[vigenteAtual]} · desde ${this._formatDate(vigenteAtual)}`
+            : "não informada",
         ]] : []),
         // O rateio so existe com geradora E mais de uma unidade: numa casa
         // sozinha, distribuir credito e devolve-lo a quem o gerou.
@@ -8200,10 +8202,20 @@
           this._invoicesLauncherSummary(),
         ],
       ];
+      // Configurar e na integracao, ver e aqui. Dois lugares para mudar a
+      // mesma coisa deixavam a duvida de qual valia, e a lista de sensores de
+      // la e a do proprio Home Assistant. O cartao mostra o que esta valendo
+      // e leva ate la. A excecao e ler faturas: so o navegador abre a pasta
+      // do computador de quem usa.
       for (const [id, icone, titulo, descricao, valor] of definicoes) {
-        const botao = this._button("", "settings-open", "settings-launcher");
-        botao.dataset.modal = id;
-        botao.setAttribute("aria-haspopup", "dialog");
+        let botao;
+        if (id === "extracao") {
+          botao = this._button("", "settings-open", "settings-launcher");
+          botao.dataset.modal = id;
+          botao.setAttribute("aria-haspopup", "dialog");
+        } else {
+          botao = this._integrationLink("", "settings-launcher settings-launcher-link");
+        }
         const marca = this._element("ha-icon", "settings-launcher-icon");
         marca.setAttribute("icon", icone);
         const texto = this._element("div", "settings-launcher-copy");
@@ -8213,6 +8225,10 @@
         );
         const estado = this._element("div", "settings-launcher-state");
         estado.append(this._element("span", "num settings-launcher-value", valor));
+        estado.append(this._element(
+          "span", "settings-launcher-go",
+          id === "extracao" ? "Ler faturas" : "Alterar na integração",
+        ));
         botao.append(marca, texto, estado);
         grade.append(botao);
       }
@@ -8262,12 +8278,6 @@
       const vista = this._settingsModal;
       if (!vista) return null;
       const titulos = {
-        ciclo: "Fronteira do ciclo",
-        tarifa: "Tarifa da distribuidora",
-        unidades: "Unidades desta instalação",
-        sensores: "Sensores das unidades",
-        investimento: "Investimento no sistema solar",
-        rateio: "Rateio entre as unidades",
         extracao: "Extração de faturas",
       };
       if (!titulos[vista]) return null;
@@ -8292,39 +8302,7 @@
       dialogo.append(cabeca);
 
       const corpo = this._element("div", "audit-modal-body");
-      if (vista === "ciclo") {
-        corpo.append(this._renderSettingsBoundary(dados));
-        corpo.append(this._renderSettingsActions(dados));
-      } else if (vista === "tarifa") {
-        corpo.append(this._renderSettingsTariffs(dados));
-        corpo.append(this._renderSettingsActions(dados));
-      } else if (vista === "investimento") {
-        corpo.append(this._renderSettingsInvestment(dados));
-        // Numa instalacao nova nada foi declarado, e nao ha o que restaurar:
-        // o que existe e apagar o que se informou. Chamar isso de "restaurar
-        // o declarado" prometeria um valor que nao existe em lugar nenhum.
-        corpo.append(this._renderSettingsActions(
-          dados,
-          dados.solar_investment?.declared
-            ? { rotulo: "Restaurar o declarado", acao: "settings-reset" }
-            : ((this._settingsDraft?.investimento
-                || dados.solar_investment?.override)
-              ? { rotulo: "Limpar o valor", acao: "settings-clear-investment" }
-              : false),
-        ));
-      } else if (vista === "unidades") {
-        corpo.append(this._renderUnitsPanel());
-      } else if (vista === "sensores") {
-        corpo.append(this._renderSensorsPanel());
-      } else if (vista === "rateio") {
-        // O mesmo editor que a Visao geral abre. Ele sempre existiu; o que
-        // faltava era uma porta que nao dependesse de a Visao geral ter
-        // conteudo — e numa instalacao nova ela nao tem, justamente por falta
-        // de rateio.
-        corpo.append(this._renderDistribution({ modal: true }));
-      } else {
-        corpo.append(this._renderInvoicePanel());
-      }
+      corpo.append(this._renderInvoicePanel());
       dialogo.append(corpo);
       overlay.append(dialogo);
       return overlay;
@@ -11725,7 +11703,7 @@
 
       const acoes = this._element("div", "rateio-actions");
       acoes.append(
-        this._button("Editar rateio", "distribution-open-editor", "rateio-action"),
+        this._integrationLink("Alterar na integração", "rateio-action rateio-action-link"),
         this._button("Histórico de vigências", "distribution-open-history", "rateio-action"),
       );
       section.append(acoes);
@@ -14630,7 +14608,7 @@
         const pendente = faltaInvestimento || faltaFatura;
         const message = faltaInvestimento
           ? "Informe quanto custou o sistema solar para o payback ser calculado."
-            + " O valor fica em Configuração › Investimento no sistema solar."
+            + " O valor fica na integração: Configurar › Investimento no sistema solar."
           : faltaFatura
             ? "O payback soma a economia que aparece nas faturas, e nenhuma foi"
               + " lida ainda. Leia as faturas em Configuração › Extração de faturas."
@@ -14641,10 +14619,12 @@
           "div",
           `payback-projection-error ${pendente ? "pending" : ""}`,
         );
-        const botao = this._button(
-          pendente ? "Abrir a Configuração" : "Tentar novamente",
-          pendente ? "payback-open-investment" : "payback-projection-retry",
-        );
+        const botao = faltaInvestimento
+          ? this._integrationLink("Informar na integração", "button")
+          : this._button(
+            faltaFatura ? "Ler faturas" : "Tentar novamente",
+            faltaFatura ? "payback-open-investment" : "payback-projection-retry",
+          );
         if (faltaFatura) botao.dataset.modal = "extracao";
         error.append(this._element("span", "", message), botao);
         section.append(error);
@@ -22273,9 +22253,27 @@
            que responde "preciso abrir isto?" sem abrir. */
         .settings-launcher-state {
           grid-column: 2;
+          display: flex;
+          justify-content: space-between;
+          align-items: baseline;
+          gap: 10px;
           margin-top: 10px;
           padding-top: 10px;
           border-top: 1px solid var(--line);
+        }
+        .settings-launcher-link {
+          color: inherit;
+          text-decoration: none;
+        }
+        .rateio-action-link {
+          text-align: center;
+          text-decoration: none;
+        }
+        .settings-launcher-go {
+          color: var(--accent);
+          font-size: 11.5px;
+          font-weight: 600;
+          white-space: nowrap;
         }
         .settings-launcher-value {
           color: var(--ink-2);

@@ -14,7 +14,7 @@ validação no lugar certo. A página da integração é só outro jeito de cham
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -41,9 +41,8 @@ from .model_builder import (
 #: passo do fluxo e uma chave de tradução: mudar o nome aqui exige mudar lá.
 MENU_ORDER = (
     "unidade_nova",
-    "sensores",
-    "faturas",
     "unidade_editar",
+    "faturas",
     "rateio",
     "tarifa",
     "investimento",
@@ -352,15 +351,18 @@ def menu_options(
     disponivel = {
         "unidade_nova": True,
         "unidade_editar": tem_unidade,
-        "sensores": tem_unidade,
         # As faturas se leem no painel, que abre a pasta do computador. O
-        # item existe para quem procura aqui saber onde e.
-        "faturas": True,
+        # item existe para quem procura aqui saber onde e — e so depois da
+        # primeira unidade: sem ela, a fatura lida nao teria de quem ser.
+        "faturas": tem_unidade,
         "rateio": podem["distribution"],
-        # Tarifa e horário de corte só agem sobre o que o sensor mede: a
-        # tarifa estima o ciclo em andamento, o horário alinha fatura e
-        # leitura. Com só faturas, seriam perguntas sem efeito.
-        "tarifa": podem["measurement"],
+        # A tarifa informada so serve ao payback: da valor a energia
+        # compensada nos meses em que a fatura nao imprime a tarifa. A
+        # previsao do ciclo ja usa a da ultima fatura. Por isso ela anda com
+        # o investimento, e nao com o sensor.
+        "tarifa": podem["generation"],
+        # O horário de corte alinha a data da fatura com a leitura do
+        # sensor: sem sensor, não age sobre nada.
         "investimento": podem["generation"],
         "horario": podem["measurement"],
         "unidade_excluir": tem_unidade,
@@ -557,12 +559,37 @@ def distribution_history(model: Mapping[str, Any], rules: Any) -> list[str]:
     return linhas
 
 
-def tariff_history(tariffs: Mapping[date, Any]) -> str:
-    """As tarifas informadas, cada uma com a data em que passou a valer."""
-    return " | ".join(
-        f"desde {vigencia.strftime('%d/%m/%Y')}: R$ {format(Decimal(valor).normalize(), 'f')}/kWh"
-        for vigencia, valor in sorted(tariffs.items(), reverse=True)
-    )
+def tariff_intervals(tariffs: Mapping[date, Any]) -> list[str]:
+    """Cada tarifa com o período em que vale, da mais nova para a mais antiga.
+
+    Só a data de início é informada: a tarifa vale até a véspera da seguinte.
+    Pedir "de… até…" deixaria a pessoa abrir um buraco entre dois períodos, ou
+    sobrepor dois, e o sistema teria de adivinhar qual vale.
+    """
+    datas = sorted(tariffs)
+    linhas = []
+    for indice, inicio in enumerate(datas):
+        seguinte = datas[indice + 1] if indice + 1 < len(datas) else None
+        ate = (
+            (seguinte - timedelta(days=1)).strftime("%d/%m/%Y")
+            if seguinte is not None else "hoje"
+        )
+        valor = format(Decimal(str(tariffs[inicio])).normalize(), "f").replace(".", ",")
+        linhas.append(f"{inicio.strftime('%d/%m/%Y')} → {ate}: R$ {valor}/kWh")
+    return list(reversed(linhas))
+
+
+def tariff_gap(tariffs: Mapping[date, Any] | None, since: date | None) -> date | None:
+    """Desde quando falta tarifa, ou None se não falta.
+
+    O payback conta desde o investimento. Um mês sem tarifa conhecida fica de
+    fora da conta — e antes ninguém era avisado disso.
+    """
+    if since is None:
+        return None
+    if not tariffs:
+        return since
+    return since if since < min(tariffs) else None
 
 
 def shares_from_form(

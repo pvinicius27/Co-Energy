@@ -488,10 +488,19 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
                     else _error_key(error)
                 )
             else:
+                # Editar e apontar sensores eram dois itens do menu. Quem
+                # desmarcava "tem medidor" e ia a "Adicionar sensor" era
+                # mandado de volta a "Editar". Agora e uma sequencia so, na
+                # mesma ordem de "Adicionar unidade": dados, depois sensores.
+                if user_input.get(F_MEDIDA, True):
+                    self._pending = novo
+                    return await self.async_step_sensores_unidade()
                 return await self._async_save_model(novo)
         apresentacao = unidade.get("presentation") or {}
         return self.async_show_form(
             step_id="unidade_dados",
+            # Com medidor, a tela seguinte e a dos sensores.
+            last_step=unidade.get("measured") is False,
             data_schema=vol.Schema({
                 **_unit_schema(
                     unidade.get("name"), unidade.get("role") == ROLE_GENERATOR,
@@ -586,26 +595,6 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
         )
 
     # -- sensores ------------------------------------------------------
-
-    async def async_step_sensores(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            unidade = self._model()["units"].get(user_input[F_UNIDADE], {})
-            # Unidade marcada como "sem medidor" vive só da fatura: apontar
-            # sensor nela seria configurar algo que a tela ignora. A pessoa é
-            # avisada de onde se muda isso, em vez de preencher à toa.
-            if unidade.get("measured") is False:
-                errors["base"] = "unit_without_meter"
-            else:
-                self._unit_id = user_input[F_UNIDADE]
-                return await self.async_step_sensores_unidade()
-        return self.async_show_form(
-            step_id="sensores", data_schema=_unit_select(self._model()),
-            errors=errors,
-            last_step=False,
-        )
 
     async def async_step_sensores_unidade(
         self, user_input: dict[str, Any] | None = None
@@ -774,8 +763,13 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
                 errors["base"] = _error_key(error)
             else:
                 return self._finish()
-        lista = passos.tariff_history(atuais)
         vigente = passos.current_tariff(atuais)
+        investimento = ajustes.solar_investment
+        desde = (
+            date.fromisoformat(f"{investimento.period}-01")
+            if investimento is not None else None
+        )
+        falta = passos.tariff_gap(atuais, desde)
         return self.async_show_form(
             step_id="tarifa",
             data_schema=vol.Schema({
@@ -798,7 +792,19 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
                 ): selector.TextSelector(),
             }),
             errors=errors,
-            description_placeholders={"atuais": lista or "nenhuma informada"},
+            description_placeholders={
+                "intervalos": passos.markdown_list(
+                    passos.tariff_intervals(atuais), "nenhuma ainda."
+                ),
+                "falta": (
+                    f"\n\n**Falta tarifa antes de "
+                    f"{min(atuais).strftime('%d/%m/%Y') if atuais else 'hoje'}.** "
+                    f"O payback conta desde o investimento ({desde.strftime('%m/%Y')}), "
+                    "e os meses sem tarifa ficam fora da conta. Informe a tarifa "
+                    "daquela época com a data em que ela começou."
+                    if falta is not None else ""
+                ),
+            },
         )
 
     async def async_step_investimento(
