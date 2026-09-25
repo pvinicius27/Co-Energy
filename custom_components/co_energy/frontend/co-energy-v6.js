@@ -300,9 +300,12 @@
       // Qual leitura do payback esta aberta: as barras de sempre, ou a
       // posicao liquida. E preferencia de leitura, nao estado de dado.
       this._paybackChartMode = this._storedView.paybackChart ?? "bars";
-      this._page = this._pages().some((item) => item[0] === this._storedView.page)
-        ? this._storedView.page
-        : "overview";
+      // A aba guardada vale como esta. Conferir aqui se ela existe dava sempre
+      // "nao": a lista de unidades ainda nao chegou, e sem ela so existe a
+      // Configuracao — toda recarga jogava a pessoa para fora da aba em que
+      // estava. Quem confere e _renderPage, ja com a lista na mao; primeira
+      // abertura, sem nada guardado, cai na Visao geral.
+      this._page = this._storedView.page ?? "overview";
       this._cache = new Map();
       this._stale = new Map();
       this._errors = new Map();
@@ -6457,10 +6460,10 @@
       const main = this._element("div", "main-area");
       // A aba guardada pode ser uma que deixou de existir — o painel de quem
       // acabou de instalar abre na Visao geral por padrao.
-      if (
-        (this._isEmptyInstallation || this._catalogPending)
-        && this._page !== "configuracao"
-      ) {
+      // So a instalacao sem unidade nenhuma vai para a Configuracao: e a unica
+      // tela que ela tem. Enquanto a lista de unidades nao chega, nao se sabe
+      // se ela e vazia — e a aba em que a pessoa estava fica onde estava.
+      if (this._isEmptyInstallation && this._page !== "configuracao") {
         this._page = "configuracao";
       }
       main.append(this._renderTopBar(data));
@@ -6468,6 +6471,11 @@
       main.append(scroll);
       shell.append(sidebar, main);
       card.append(shell);
+
+      if (this._catalogPending) {
+        scroll.append(this._status("Carregando…", "loading"));
+        return;
+      }
 
       if (!data && !UNIT_FREE_PAGES.has(this._page)) {
         if (loading) {
@@ -6525,7 +6533,10 @@
       // Catalogo ainda nao chegou conta como vazio de proposito: mostrar as
       // oito e recolher depois era o atraso que parecia falha. Uma aba a
       // mais aparecendo em seguida incomoda menos que sete sumindo.
-      if (this._isEmptyInstallation || this._catalogPending) {
+      // Lista ainda a caminho: nenhuma aba, por um instante. Mostrar so a
+      // Configuracao aqui fazia a recarga parecer uma instalacao vazia.
+      if (this._catalogPending) return [];
+      if (this._isEmptyInstallation) {
         return [["configuracao", "mdi:cog-outline", "Configuração"]];
       }
       // Cada aba declara de que DEPENDE, e o backend diz o que existe. A
@@ -6556,6 +6567,8 @@
     }
 
     _pageLabel(page = this._page) {
+      // Carregando, nao se sabe ainda o nome da aba: o do produto e o honesto.
+      if (this._catalogPending) return "Gestão de Energia";
       return this._pages().find((item) => item[0] === page)?.[2] ?? "Visão geral";
     }
 
