@@ -4269,11 +4269,27 @@
     // Tudo de novo, sem esperar o botao de atualizar: depois de ler ou apagar
     // faturas, e ao voltar da pagina da integracao, o que existe pode ter
     // mudado — unidades, sensores, donos de UC —, e com isso as abas.
+    // Uma fatura nova muda o ciclo de TODAS as unidades que ela toca, e nao
+    // so da que esta aberta: a leitura que atrasou de 17 para 21 muda o
+    // inicio do ciclo e a proxima leitura. Guardados, os dados de cada
+    // unidade continuavam com a data velha ate alguem apertar atualizar. O
+    // que estava na tela fica como "antigo" enquanto o novo nao chega.
+    _forgetUnitData() {
+      for (const unitId of this._unitIds()) {
+        const key = this._key(unitId);
+        const atual = this._cache.get(key);
+        if (atual) this._stale.set(key, atual);
+        this._cache.delete(key);
+        this._errors.delete(key);
+      }
+      this._cyclesCatalogCache?.clear?.();
+      this._cyclesCatalogErrors?.clear?.();
+    }
+
     _refreshAll() {
       if (!this._hass || typeof this._hass.callWS !== "function") return;
       this._modelConfig = null;
-      this._cyclesCatalogCache?.clear?.();
-      this._cyclesCatalogErrors?.clear?.();
+      this._forgetUnitData();
       if (this._page === "configuracao") {
         this._loadSettings({ force: true });
         this._loadSensors({ force: true });
@@ -8510,6 +8526,7 @@
       await this._loadInvoices({ force: true });
       // A primeira fatura pode ser o que destrava as outras abas: sem refazer
       // o catalogo, elas so apareciam depois de recarregar a pagina.
+      this._forgetUnitData();
       this._loadUnitCatalog({ force: true });
     }
 
@@ -8547,7 +8564,7 @@
         // O modelo mudou: a lista de unidades da configuracao tambem — e o que
         // cada unidade tem, que decide quais abas aparecem.
         this._modelConfig = null;
-        this._cyclesCatalogCache?.clear?.();
+        this._forgetUnitData();
         this._loadUnitCatalog({ force: true });
       } catch (error) {
         this._invoiceMessage = error?.message ?? "Não foi possível gravar.";
@@ -8750,7 +8767,7 @@
         this._invoiceMessageKind = "error";
       } finally {
         this._invoiceBusy = false;
-        this._cyclesCatalogCache?.clear?.();
+        this._forgetUnitData();
         this._loadUnitCatalog({ force: true });
         this._renderInvoiceUpdate();
       }
@@ -8768,6 +8785,7 @@
         const resposta = await this._hass.callWS({ type: INVOICE_DELETE_COMMAND, digest });
         if (resposta?.data) this._invoices = resposta.data;
         this._invoiceMessage = `Fatura ${rotulo} apagada.`;
+        this._forgetUnitData();
         this._loadUnitCatalog({ force: true });
         this._invoiceMessageKind = "ok";
         // Ciclos, auditoria e custo se montam a partir das faturas: o que
