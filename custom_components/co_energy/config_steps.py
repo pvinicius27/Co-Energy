@@ -42,6 +42,7 @@ from .model_builder import (
 MENU_ORDER = (
     "unidade_nova",
     "sensores",
+    "faturas",
     "unidade_editar",
     "rateio",
     "tarifa",
@@ -352,6 +353,9 @@ def menu_options(
         "unidade_nova": True,
         "unidade_editar": tem_unidade,
         "sensores": tem_unidade,
+        # As faturas se leem no painel, que abre a pasta do computador. O
+        # item existe para quem procura aqui saber onde e.
+        "faturas": True,
         "rateio": podem["distribution"],
         # Tarifa e horário de corte só agem sobre o que o sensor mede: a
         # tarifa estima o ciclo em andamento, o horário alinha fatura e

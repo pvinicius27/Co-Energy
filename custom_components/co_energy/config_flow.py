@@ -844,6 +844,14 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
             errors=errors,
         )
 
+    async def async_step_faturas(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        # So um aviso: esta tela envia um arquivo por vez, e o painel le a
+        # pasta inteira e mostra de quem e cada UC. Ler aqui seria o caminho
+        # pior para a mesma coisa.
+        return self.async_abort(reason="faturas_no_painel")
+
     async def async_step_horario(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:

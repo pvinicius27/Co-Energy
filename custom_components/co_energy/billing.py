@@ -406,6 +406,29 @@ def assign_bills_by_uc(document: Any, model: Any) -> Any:
     )
 
 
+def distributor_name(document: Any) -> str | None:
+    """O nome da distribuidora que as faturas imprimem, quando é um só.
+
+    Sem fatura, ou com faturas de mais de uma distribuidora, não há um nome
+    certo: a tela usa o genérico em vez de presumir uma concessionária.
+    """
+    if not isinstance(document, EquatorialDocument):
+        return None
+    nomes: set[str] = set()
+    for unit in document.units.values():
+        bills = unit.get("faturas") if isinstance(unit, Mapping) else None
+        for bill in bills if isinstance(bills, list) else ():
+            identificacao = bill.get("identificacao") if isinstance(bill, Mapping) else None
+            valor = (
+                identificacao.get("distribuidora")
+                if isinstance(identificacao, Mapping)
+                else None
+            )
+            if isinstance(valor, str) and valor.strip():
+                nomes.add(valor.strip())
+    return next(iter(nomes)) if len(nomes) == 1 else None
+
+
 def bill_stats_by_uc(document: Any) -> dict[str, dict[str, Any]]:
     """Return, per UC hash, how many bills it has and which period they cover.
 

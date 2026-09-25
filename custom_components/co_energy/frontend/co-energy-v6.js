@@ -193,7 +193,7 @@
     "Unidade", "Compensada", "Tarifa com tributos", "Bandeira", "Preço unitário",
     "Valor cheio", "Fio B cobrado", "Energia não compensada",
     "Bandeira da Energia não compensada", "Ilum. pública", "Multa e juros",
-    "Outros itens", "Valor Oficial Fatura Equatorial",
+    "Outros itens", "Valor Oficial da Fatura",
     "Valor da Fatura sem o crédito", "Economia",
   ]);
   // A ordem serve às três conferências que a auditoria exige. A soma da fatura
@@ -2034,8 +2034,8 @@
     // uma segunda fonte da verdade: se o energy-model mudar a tolerancia, o
     // titulo passaria a mentir ate alguem lembrar de edita-lo.
     _auditOverviewTitle() {
-      const base = "A divergência entre a Fatura (Equatorial) e o Sensor (HA) "
-        + "ficou dentro do limite";
+      const base = `A divergência entre a Fatura (${this._distributorLabel()}) `
+        + "e o Sensor (HA) ficou dentro do limite";
       const tolerancia = this._auditTolerancePercent();
       // Nada carregado ainda: melhor a pergunta sem o numero do que um numero
       // chutado. A secao inteira e redesenhada quando a auditoria chega.
@@ -2089,7 +2089,7 @@
       table.append(colgroup);
       const head = this._element("tr", "");
       for (const label of [
-        "Unidade", "Ciclo", "Sentido (Fluxo)", "Fatura (Equatorial)", "Sensor (HA)",
+        "Unidade", "Ciclo", "Sentido (Fluxo)", `Fatura (${this._distributorLabel()})`, "Sensor (HA)",
         "Diferença", "Conferência",
       ]) {
         head.append(this._element("th", "", label));
@@ -3162,6 +3162,10 @@
           // e decisao de tela —, e chega junto com o catalogo porque as duas
           // respostas decidem a mesma coisa: o que desenhar.
           this._unitCapabilities = response.data.capabilities ?? null;
+          const distribuidora = response.data.distributor;
+          this._distributorName = typeof distribuidora === "string" && distribuidora.trim()
+            ? distribuidora.trim()
+            : null;
           this._render();
           // As cargas pedidas ao abrir a pagina desistem enquanto a unidade
           // nao esta na lista — e a lista e este catalogo. Ao recarregar a
@@ -5827,14 +5831,14 @@
       const officialLastReading = ["Média", "Autoleitura"].includes(billingMethod)
         && formattedOfficialReading
         && formattedOfficialReading !== "—"
-        ? `<small>Última leitura Equatorial: ${this._escapeHtml(formattedOfficialReading)}</small>`
+        ? `<small>Última leitura da ${this._escapeHtml(this._distributorLabel("distribuidora"))}: ${this._escapeHtml(formattedOfficialReading)}</small>`
         : "";
       const reportedPrevious = !billingMethod
         && diagnostic.classification === "possible_estimate"
         && diagnostic.reported_previous
         ? `<small>Leitura anterior informada: ${this._escapeHtml(this._formatDate(diagnostic.reported_previous))}</small>`
         : "";
-      return `<section class="history-tooltip"><b>${this._escapeHtml(cycle.billing_reference)}</b><div><strong>Consumo oficial</strong><span>${this._escapeHtml(`${this._formatHistoryNumber(point.value)} kWh`)}</span></div><small>Período do ciclo: ${this._escapeHtml(period)}</small><small>Dias faturados: ${this._escapeHtml(readingDays)}</small>${billingDetail}${officialLastReading}${reportedPrevious}<small>Fonte: Equatorial</small><small>Classificação: Oficial</small></section>`;
+      return `<section class="history-tooltip"><b>${this._escapeHtml(cycle.billing_reference)}</b><div><strong>Consumo oficial</strong><span>${this._escapeHtml(`${this._formatHistoryNumber(point.value)} kWh`)}</span></div><small>Período do ciclo: ${this._escapeHtml(period)}</small><small>Dias faturados: ${this._escapeHtml(readingDays)}</small>${billingDetail}${officialLastReading}${reportedPrevious}<small>Fonte: ${this._escapeHtml(this._distributorLabel())}</small><small>Classificação: Oficial</small></section>`;
     }
 
     _historyTooltip(data, params) {
@@ -6642,6 +6646,13 @@
       ];
     }
 
+    // O nome que as faturas imprimem, dito pelo backend. Sem fatura, ou com
+    // mais de uma distribuidora, o generico: o painel nao presume qual e a
+    // concessionaria de quem instalou.
+    _distributorLabel(generico = "Distribuidora") {
+      return this._distributorName ?? generico;
+    }
+
     _pageLabel(page = this._page) {
       // Carregando, nao se sabe ainda o nome da aba: o do produto e o honesto.
       if (this._catalogPending) return "Gestão de Energia";
@@ -6767,7 +6778,7 @@
           ? `${nome} · próxima leitura ${this._formatDate(cycle.expected_next_reading)}`
           : nome;
       }
-      if (this._page === "auditoria") return "Medido no Home Assistant × faturado pela Equatorial";
+      if (this._page === "auditoria") return `Medido no Home Assistant × faturado pela ${this._distributorLabel("distribuidora")}`;
       if (this._page === "payback") return "Retorno do investimento no sistema solar";
       if (this._page === "diagnostico") return "Sensores, cobertura do ciclo e faturas de cada unidade";
       if (this._page === "alertas") return "Condições que exigem verificação";
@@ -8111,16 +8122,12 @@
             ? `${tarifas[vigenteAtual]} · desde ${this._formatDate(vigenteAtual)}`
             : "—",
         ]] : []),
-        // Unidades se criam, editam e excluem na pagina da integracao. Excluir
-        // por aqui deixava o painel pedindo dados de quem nao existia mais,
-        // e dois caminhos para o mesmo lugar nao diziam qual valia.
         [
           "unidades",
           "mdi:home-group",
           "Unidades",
-          "Criar, renomear, apontar sensores e excluir: na página da integração.",
+          "Quais unidades existem, como se chamam e quais geram energia.",
           this._unitsLauncherSummary(),
-          "integracao",
         ],
         // A tela de sensores existia para adaptar um modelo que nao se podia
         // editar. Com o modelo no Home Assistant, editar o original substitui
@@ -8165,15 +8172,10 @@
           this._invoicesLauncherSummary(),
         ],
       ];
-      for (const [id, icone, titulo, descricao, valor, destino] of definicoes) {
-        let botao;
-        if (destino === "integracao") {
-          botao = this._integrationLink("", "settings-launcher settings-launcher-link");
-        } else {
-          botao = this._button("", "settings-open", "settings-launcher");
-          botao.dataset.modal = id;
-          botao.setAttribute("aria-haspopup", "dialog");
-        }
+      for (const [id, icone, titulo, descricao, valor] of definicoes) {
+        const botao = this._button("", "settings-open", "settings-launcher");
+        botao.dataset.modal = id;
+        botao.setAttribute("aria-haspopup", "dialog");
         const marca = this._element("ha-icon", "settings-launcher-icon");
         marca.setAttribute("icon", icone);
         const texto = this._element("div", "settings-launcher-copy");
@@ -9915,7 +9917,7 @@
           "",
           " Todo ciclo é recalculado com o horário novo: histórico, comparação, "
           + "auditoria, SCEE, fluxo e previsões. Depois de alterar, confira a aba "
-          + "Auditoria — se as divergências contra a Equatorial aumentarem, o "
+          + "Auditoria — se as divergências contra a fatura aumentarem, o "
           + "horário novo está mais longe da leitura real do que o anterior.",
         ),
       );
@@ -13169,7 +13171,7 @@
       state.append(summary);
       if (hasOfficial) {
         state.append(
-          this._element("small", "", "Fonte: Equatorial"),
+          this._element("small", "", `Fonte: ${this._distributorLabel()}`),
           this._element("small", "", "Classificação: Oficial"),
         );
       }
@@ -15528,7 +15530,7 @@
           ],
           explanation: "São duas parcelas. A de fatura é a diferença entre o que seria"
             + " pago pela energia compensada e o que foi pago por ela, em todas as"
-            + " unidades — está comprovada nas contas da Equatorial. O autoconsumo HA é"
+            + " unidades — está comprovada nas faturas. O autoconsumo HA é"
             + " a energia gerada e consumida na hora, medida pelo sensor do Home"
             + " Assistant: a energia é real, mas nunca passou pelo medidor da"
             + " distribuidora, então o preço dela é premissa e não fatura. Ciclos"
@@ -15981,7 +15983,7 @@
         // `nowrap` para a linha se dobrar entre eles, nunca no meio de um número.
         const cut = (value) => this._truncateDecimals(value, 6);
         for (const part of [
-          `${decimal(basis.without_taxes)} valor tarifa Equatorial`,
+          `${decimal(basis.without_taxes)} valor da tarifa na fatura`,
           `÷ ${cut(basis.pis_cofins_divisor)}`
             + ` (1 − ${decimal(basis.pis_percent)}% PIS`
             + ` − ${decimal(basis.cofins_percent)}% COFINS)`,
@@ -16793,7 +16795,7 @@
       const values = this._element("div", "audit-values");
       values.append(
         this._field(
-          "Equatorial",
+          this._distributorLabel(),
           this._valueWithUnit(entry.official_value, entry.unit, 2),
         ),
         this._field(
@@ -16966,7 +16968,7 @@
           "audit-reference-label",
           data?.status === "not_applicable"
             ? "Referência oficial"
-            : "Equatorial × Home Assistant",
+            : `${this._distributorLabel()} × Home Assistant`,
         ),
         this._element("strong", "audit-reference-value", this._auditReference() ?? "—"),
       );
@@ -22171,11 +22173,6 @@
         }
         /* Cartao inteiro clicavel, e nao um botao dentro de um cartao: o alvo
            e do tamanho do que se le, que e como um item de menu se comporta. */
-        .settings-launcher-link {
-          color: inherit;
-          text-decoration: none;
-        }
-
         .settings-launcher {
           display: grid;
           grid-template-columns: 38px minmax(0, 1fr);

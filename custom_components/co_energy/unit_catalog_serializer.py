@@ -30,6 +30,7 @@ def serialize_unit_catalog(
     model: Mapping[str, Any],
     *,
     has_billing: bool = False,
+    distributor: str | None = None,
     has_investment: bool = False,
 ) -> dict[str, Any]:
     """Serialize the declared units through an explicit allowlist.
@@ -69,6 +70,9 @@ def serialize_unit_catalog(
     return {
         "units": units,
         "generator_unit_id": _generator_or_none(model),
+        # Nome impresso nas faturas, ou None: a tela nunca presume qual e a
+        # concessionaria.
+        "distributor": distributor,
         "capabilities": installation_capabilities(
             model, has_billing=has_billing, has_investment=has_investment
         ),

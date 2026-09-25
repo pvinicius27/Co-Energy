@@ -82,6 +82,7 @@
           "unidade_nova": "Add a unit",
           "unidade_editar": "Edit a unit (name, role, colour, picture)",
           "sensores": "Add a sensor to a unit",
+          "faturas": "Read bills",
           "rateio": "Credit distribution",
           "tarifa": "Tariff",
           "investimento": "Solar system investment",
@@ -234,7 +235,8 @@
     "abort": {
       "runtime_unavailable": "The integration has not finished loading. Try again in a few seconds.",
       "distribution_unavailable": "The stored distribution could not be read. See the Home Assistant log.",
-      "save_failed": "Could not save. See the Home Assistant log."
+      "save_failed": "Could not save. See the Home Assistant log.",
+      "faturas_no_painel": "PDF bills are read in the **Gestão de Energia** panel, in the sidebar: **Configuração** tab → **Extração de faturas**.\n\nPick the folder with the PDFs: the panel reads them all at once and shows which unit each one belongs to. Read as many as you have — each old bill becomes a month in the history.\n\nThe PDF is not kept in Home Assistant, only the numbers of the bill."
     }
   }
 }

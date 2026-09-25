@@ -82,6 +82,7 @@
           "unidade_nova": "Adicionar unidade",
           "unidade_editar": "Editar unidade (nome, papel, cor, foto)",
           "sensores": "Adicionar sensor à unidade",
+          "faturas": "Ler faturas",
           "rateio": "Rateio dos créditos",
           "tarifa": "Tarifa",
           "investimento": "Investimento no sistema solar",
@@ -234,7 +235,8 @@
     "abort": {
       "runtime_unavailable": "A integração ainda não terminou de carregar. Tente de novo em alguns segundos.",
       "distribution_unavailable": "O rateio guardado não pôde ser lido. Veja o registro do Home Assistant.",
-      "save_failed": "Não foi possível salvar. Veja o registro do Home Assistant."
+      "save_failed": "Não foi possível salvar. Veja o registro do Home Assistant.",
+      "faturas_no_painel": "As faturas em PDF são lidas no painel **Gestão de Energia**, na barra lateral: aba **Configuração** → **Extração de faturas**.\n\nEscolha a pasta com os PDFs: o painel lê todas de uma vez e mostra de qual unidade é cada uma. Leia o máximo que tiver — cada fatura antiga vira um mês no histórico.\n\nO PDF não fica guardado no Home Assistant, só os números da fatura."
     }
   }
 }
