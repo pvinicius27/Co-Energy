@@ -4284,6 +4284,10 @@
       }
       this._cyclesCatalogCache?.clear?.();
       this._cyclesCatalogErrors?.clear?.();
+      // A variacao contra o ciclo anterior e o preco estimado tambem partem
+      // do inicio do ciclo: com a fatura nova, o inicio mudou.
+      this._cycleTrend?.clear?.();
+      this._cycleCost?.clear?.();
     }
 
     _refreshAll() {
@@ -12702,7 +12706,8 @@
         "div", `unit-card-trend ${subindo ? "up" : descendo ? "down" : "flat"}`,
       );
       caixa.append(
-        this._element("span", "unit-card-trend-arrow", subindo ? "▲" : descendo ? "▼" : "—"),
+        // Igual e "=": o traco lia como "sem dado", e zero aqui e medida.
+        this._element("span", "unit-card-trend-arrow", subindo ? "▲" : descendo ? "▼" : "="),
         this._element("span", "num", `${this._formatNumber(Math.abs(valor), 1, 1)}%`),
       );
       const dias = Number.isFinite(dados.dias)
