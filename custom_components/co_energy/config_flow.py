@@ -73,6 +73,7 @@ F_VIGENCIA = "vigencia"
 F_VALOR = "valor"
 F_MES = "mes"
 F_LIMPAR = "limpar"
+F_CONFIRMA_TARIFA = "confirmar_diferente"
 F_HORA = "horario"
 F_CONFIRMA = "confirmar"
 F_ANTERIOR = "medidor_anterior"
@@ -337,6 +338,7 @@ _KNOWN_ERRORS = {
     passos.ERROR_COLOR_INVALID, passos.ERROR_SWAP_WHEN,
     passos.ERROR_PERIOD_INVALID, passos.ERROR_AMOUNT_INVALID,
     passos.ERROR_TARIFF_INVALID, passos.ERROR_TARIFF_DATE_REQUIRED,
+    passos.ERROR_TARIFF_DIFFERS,
     passos.ERROR_HISTORY_KEEP,
     passos.ERROR_PREVIOUS_INCOMPLETE, passos.ERROR_PREVIOUS_NEEDS_CURRENT,
     passos.ERROR_PREVIOUS_SAME,
@@ -739,12 +741,56 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
             now=dt_util.now(), **mudanca
         )
 
+    def _published_base_tariffs(self) -> list[tuple[str, Any, Any, Any]]:
+        """A tarifa sem impostos que cada fatura lida imprime, com o período.
+
+        Lida pelo módulo de finanças, como o resto da integração lê as faturas:
+        nada aqui interpreta o JSON da fatura por conta própria.
+        """
+        from .billing import BillingError, get_billing_records
+        from .finance import FinanceError, get_official_financial_snapshot
+        from .payback_projection import published_base_tariff
+
+        runtime = self._runtime()
+        manager = getattr(runtime, "invoice_manager", None)
+        if manager is None or not manager.stored.faturas:
+            return []
+        try:
+            documento = manager.document(runtime.model)
+        except Exception:  # noqa: BLE001 - sem faturas legíveis, não há o que conferir
+            return []
+        saida: list[tuple[str, Any, Any, Any]] = []
+        for unit_id, unidade in (runtime.model.get("units") or {}).items():
+            chave = (unidade or {}).get("billing_key") or unit_id
+            try:
+                registros = get_billing_records(documento, chave)
+            except BillingError:
+                continue
+            for registro in registros:
+                try:
+                    fatura = get_official_financial_snapshot(
+                        documento, chave, registro.reference
+                    )
+                except FinanceError:
+                    continue
+                if fatura is None:
+                    continue
+                valor = published_base_tariff(fatura)
+                if valor is not None:
+                    saida.append((
+                        registro.reference, fatura.period_start,
+                        fatura.period_end, valor,
+                    ))
+        return saida
+
     async def async_step_tarifa(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         ajustes = self._runtime().settings_manager.settings
         atuais = dict(ajustes.tariffs_without_taxes or {})
         errors: dict[str, str] = {}
+        impressas = self._published_base_tariffs()
+        divergencia = ""
         if user_input is not None:
             try:
                 bruto = user_input.get(F_VALOR)
@@ -761,6 +807,17 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
                     atuais[vigencia] = passos.decimal_text(
                         bruto, passos.ERROR_TARIFF_INVALID
                     )
+                    # As faturas lidas dizem qual era a tarifa no período. Um
+                    # valor que as contradiz é, quase sempre, erro de digitação
+                    # ou de data — e sairia no payback de quem compensou tudo.
+                    conflitos = passos.tariff_conflicts(atuais, impressas, vigencia)
+                    if conflitos and not user_input.get(F_CONFIRMA_TARIFA):
+                        por_mes = dict(conflitos)
+                        divergencia = ", ".join(
+                            f"{ref}: R$ {format(valor.normalize(), 'f').replace('.', ',')}"
+                            for ref, valor in list(por_mes.items())[:6]
+                        )
+                        raise ValueError(passos.ERROR_TARIFF_DIFFERS)
                 await self._async_update_settings(
                     tariffs_without_taxes=atuais or None
                 )
@@ -771,6 +828,10 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
             else:
                 return self._finish()
         vigente = passos.current_tariff(atuais)
+        sugestao = passos.tariff_suggestion(impressas)
+        if vigente is None and sugestao is not None:
+            # Nada informado ainda: a tela abre com o que as faturas trazem.
+            vigente = (sugestao[1], sugestao[0])
         investimento = ajustes.solar_investment
         desde = (
             date.fromisoformat(f"{investimento.period}-01")
@@ -797,9 +858,17 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
                         )
                     },
                 ): selector.TextSelector(),
+                vol.Optional(F_CONFIRMA_TARIFA, default=False): selector.BooleanSelector(),
             }),
             errors=errors,
             description_placeholders={
+                "divergencia": divergencia,
+                "nas_faturas": (
+                    f"R$ {format(sugestao[0].normalize(), 'f').replace('.', ',')}/kWh "
+                    f"(faturas de {sugestao[1].strftime('%d/%m/%Y')} a "
+                    f"{sugestao[2].strftime('%d/%m/%Y')})"
+                    if sugestao is not None else "nenhuma fatura lida traz a tarifa"
+                ),
                 "intervalos": passos.markdown_list(
                     passos.tariff_intervals(atuais), "nenhuma ainda."
                 ),

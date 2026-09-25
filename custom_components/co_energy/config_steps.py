@@ -62,6 +62,7 @@ ERROR_PERIOD_INVALID = "period_invalid"
 ERROR_AMOUNT_INVALID = "amount_invalid"
 ERROR_TARIFF_INVALID = "tariff_invalid"
 ERROR_TARIFF_DATE_REQUIRED = "tariff_date_required"
+ERROR_TARIFF_DIFFERS = "tariff_differs_from_bills"
 ERROR_HISTORY_KEEP = "history_keep"
 ERROR_PREVIOUS_INCOMPLETE = "previous_incomplete"
 ERROR_PREVIOUS_NEEDS_CURRENT = "previous_needs_current"
@@ -576,6 +577,63 @@ def tariff_intervals(tariffs: Mapping[date, Any]) -> list[str]:
         valor = format(Decimal(str(tariffs[inicio])).normalize(), "f").replace(".", ",")
         linhas.append(f"{inicio.strftime('%d/%m/%Y')} → {ate}: R$ {valor}/kWh")
     return list(reversed(linhas))
+
+
+#: Mesma tolerância do cálculo do payback: abaixo disso é arredondamento.
+TARIFF_TOLERANCE = Decimal("0.000005")
+
+
+def tariff_conflicts(
+    tariffs: Mapping[date, Any],
+    published: Any,
+    vigencia: date,
+) -> list[tuple[str, Decimal]]:
+    """Faturas da vigência ``vigencia`` que imprimem outra tarifa sem impostos.
+
+    ``published`` traz ``(referência, início, fim, tarifa)`` de cada fatura
+    que imprime a tarifa. Só conta a fatura cujo ciclo inteiro cai nesta
+    vigência: a que atravessa um reajuste imprime a média por dias, e diferir
+    ali é o certo.
+    """
+    datas = sorted(tariffs)
+
+    def vigente(dia: date) -> date | None:
+        atual = None
+        for item in datas:
+            if item <= dia:
+                atual = item
+        return atual
+
+    valor = Decimal(str(tariffs[vigencia]))
+    conflitos: list[tuple[str, Decimal]] = []
+    for referencia, inicio, fim, impresso in published:
+        if inicio is None or fim is None or inicio >= fim or impresso is None:
+            continue
+        a, b = vigente(inicio + timedelta(days=1)), vigente(fim)
+        if a != vigencia or b != vigencia:
+            continue
+        if abs(Decimal(str(impresso)) - valor) > TARIFF_TOLERANCE:
+            conflitos.append((referencia, Decimal(str(impresso))))
+    return conflitos
+
+
+def tariff_suggestion(published: Any) -> tuple[Decimal, date, date] | None:
+    """A tarifa sem impostos da fatura mais recente, e o período que ela cobre.
+
+    O período vai do início mais antigo ao fim mais recente das faturas que
+    imprimem esse mesmo valor. Não é a data do reajuste — as faturas não a
+    dizem —, mas é o trecho que a tarifa comprovadamente cobre.
+    """
+    validos = [
+        (fim, inicio, Decimal(str(valor)))
+        for _ref, inicio, fim, valor in published
+        if inicio is not None and fim is not None and valor is not None
+    ]
+    if not validos:
+        return None
+    ultimo = max(validos)[2]
+    mesmos = [item for item in validos if abs(item[2] - ultimo) <= TARIFF_TOLERANCE]
+    return ultimo, min(item[1] for item in mesmos), max(item[0] for item in mesmos)
 
 
 def tariff_gap(tariffs: Mapping[date, Any] | None, since: date | None) -> date | None:

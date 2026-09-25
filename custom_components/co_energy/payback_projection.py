@@ -435,6 +435,16 @@ def _full_tariff_item(financial: OfficialFinancialSnapshot):
     return None
 
 
+def published_base_tariff(financial: OfficialFinancialSnapshot) -> Decimal | None:
+    """A tarifa sem impostos que esta fatura imprime, quando imprime.
+
+    É com ela que a tela de configuração confere a tarifa digitada: as faturas
+    já lidas dizem qual era a tarifa em cada período.
+    """
+    item = _full_tariff_item(financial)
+    return None if item is None else item.tariff_without_taxes
+
+
 def _published_full_tariff(
     financial: OfficialFinancialSnapshot,
 ) -> tuple[Decimal | None, Decimal | None]:
@@ -599,11 +609,16 @@ def _resolve_unit_tariff(
 ) -> tuple[Decimal, tuple[str, ...], str] | None:
     """Resolve the energy tariff of one unit in one reference.
 
-    Ordem de preferência: a base anual elevada pelas alíquotas desta fatura é a
-    única que serve para toda unidade, inclusive as que compensaram todo o
-    consumo e por isso não imprimem tarifa. Sem base configurada, vale a tarifa
-    que a própria fatura publica; sem nenhuma das duas, a tarifa resolvida para
-    o mês a partir das outras faturas.
+    Ordem de preferência: a tarifa sem impostos informada, elevada pelas
+    alíquotas DESTA fatura, serve para toda unidade — inclusive as que
+    compensaram todo o consumo e por isso não imprimem tarifa. Sem ela, vale a
+    tarifa que a própria fatura publica. Sem nenhuma das duas não há preço.
+
+    A tarifa de outra fatura do mês não é usada: ela vem com os impostos da
+    outra unidade, e pode ser de outra classe tarifária. Decisão do operador em
+    2026-09-25, depois de conferir a conta contra 14 faturas reais — a base
+    informada, elevada pelas alíquotas de cada fatura, reproduz a tarifa
+    impressa até a sexta casa.
     """
     own, _ = _published_full_tariff(financial)
     # A base vale por vigência, e o ciclo desta unidade tem as próprias datas:
@@ -622,12 +637,11 @@ def _resolve_unit_tariff(
         return derived, (financial.unit_id,), "own_invoice_taxes"
     if own is not None:
         return own, (financial.unit_id,), "own_invoice"
-    if basis is None:
-        # Nem tarifa própria, nem base declarada, nem tarifa única do mês: não
-        # há preço para esta unidade nesta referência, e inventar um seria pior
-        # do que deixar a parcela dela de fora.
-        return None
-    return basis.value, basis.sources, "month_reference"
+    # Nem tarifa informada para o período, nem tarifa na própria fatura: não
+    # há preço para esta unidade nesta referência. A parcela dela fica de fora
+    # e o aviso diz o que informar, em vez de emprestar a de outra conta.
+    return None
+
 
 
 def _avoided_cost(
@@ -638,11 +652,8 @@ def _avoided_cost(
 ) -> tuple[Decimal, SavingsDerivation] | None:
     """Value one unit's compensated energy at the tariff it avoided paying.
 
-    A tarifa preferida é a que a **própria fatura da unidade** publica. Só quando
-    ela não publica nenhuma — o que acontece sempre que a unidade compensou todo
-    o consumo e por isso não tem linha de consumo não compensado — é que se usa a
-    tarifa resolvida para o mês. As duas nunca divergem: o ciclo é recusado antes
-    disso se as faturas do mês discordarem entre si.
+    A tarifa vem de ``_resolve_unit_tariff``: a informada elevada pelos
+    impostos desta fatura, ou a que a própria fatura imprime.
     """
     injection = _unique_item(financial.items, code=_INJECTION_CODE)
     transition = _unique_item(financial.items, code=_COMPENSATED_CODE)
@@ -739,7 +750,7 @@ def _unit_savings(
         if _resolve_unit_tariff(financial, basis, investment) is None:
             return (
                 UnitCycleSavings(unit.unit_id, _ZERO, paid, "unconfirmed", **charges),
-                f"missing_unit_tariff:{unit.unit_id}",
+                f"missing_unit_tariff:{reference}:{unit.unit_id}",
             )
         valued = _avoided_cost(financial, basis, paid, investment)
         if valued is None:
@@ -859,11 +870,27 @@ def _eligible_reference(
         # tarifas —, e recusar ali apagaria o mês inteiro do gráfico, com todas
         # as unidades, por um desacordo que é legítimo.
         warnings.append(f"{tariff_problem}:{reference}")
+    # Tarifa informada que contradiz alguma fatura do mes nao vale para
+    # ninguem nele. Sem isso, um valor digitado errado passava direto para as
+    # unidades que compensaram tudo — as que nao imprimem tarifa para
+    # comparar — e o payback saia inflado. Sem ela, essas ficam sem preco e o
+    # aviso diz o que corrigir: menor, nunca maior.
+    divergentes = [
+        unit.unit_id for unit in present
+        if tariff_disagreement(unit.financial, investment) is not None
+    ]
+    configuracao_do_mes = None if divergentes else investment
+    if divergentes:
+        warnings.append(f"configured_tariff_ignored:{reference}")
     for unit in present:
-        entry, warning = _unit_savings(unit, reference, tariff_basis, investment)
+        entry, warning = _unit_savings(unit, reference, tariff_basis, configuracao_do_mes)
         savings.append(entry)
         if warning is not None:
             warnings.append(warning)
+        # Reajuste nao cadastrado: a mesma checagem que a Saude dos dados faz
+        # na ultima fatura, aqui em cada mes que o payback soma.
+        if unit.unit_id in divergentes:
+            warnings.append(f"configured_tariff_mismatch:{reference}:{unit.unit_id}")
 
     if (
         not any(item.status == "confirmed" for item in savings)
@@ -889,7 +916,7 @@ def _eligible_reference(
             official_savings=official,
             paid_total=paid,
             hypothetical=_hypothetical_inputs(
-                cycle, reference, tariff_basis, investment
+                cycle, reference, tariff_basis, configuracao_do_mes
             ),
             full_tariff_basis=tariff_basis,
             missing_units=missing,

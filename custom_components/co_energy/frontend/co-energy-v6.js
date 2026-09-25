@@ -11863,6 +11863,8 @@
         return section;
       }
       const summary = this._paybackSummary(data);
+      const avisoTarifa = this._renderPaybackTariffNotice(data);
+      if (avisoTarifa) section.append(avisoTarifa);
       section.append(this._renderPaybackHero(data, summary));
       section.append(this._renderPaybackKpis(data, summary));
 
@@ -12991,6 +12993,42 @@
       return wrap;
     }
 
+    // A tarifa e o que da valor a energia compensada. Faltando, ou divergindo
+    // da fatura, o payback fica menor ou errado sem que ninguem perceba: o
+    // aviso diz o que fazer, e onde.
+    _renderPaybackTariffNotice(data) {
+      const avisos = Array.isArray(data?.warnings) ? data.warnings : [];
+      const porTipo = (tipo) => [...new Set(avisos
+        .filter((item) => typeof item === "string" && item.startsWith(`${tipo}:`))
+        .map((item) => item.split(":")[1])
+        .filter(Boolean))];
+      const faltando = porTipo("missing_unit_tariff");
+      const divergente = porTipo("configured_tariff_mismatch");
+      if (!faltando.length && !divergente.length) return null;
+      const caixa = this._element("div", "payback-projection-error pending");
+      const textos = [];
+      if (faltando.length) {
+        textos.push(
+          `Sem tarifa para ${faltando.join(", ")}: a economia das unidades que`
+          + " compensaram tudo ficou de fora nesses meses. Informe a tarifa sem"
+          + " impostos da época, com a data em que começou a valer.",
+        );
+      }
+      if (divergente.length) {
+        textos.push(
+          `A tarifa informada não bate com a impressa na fatura de`
+          + ` ${divergente.join(", ")}, e por isso não foi usada nesses meses.`
+          + " Houve reajuste ou erro de digitação? Corrija a tarifa, com a data"
+          + " em que ela começou a valer.",
+        );
+      }
+      caixa.append(
+        this._element("span", "", textos.join(" ")),
+        this._integrationLink("Informar na integração", "button"),
+      );
+      return caixa;
+    }
+
     _renderPaybackMetadata(data, summary) {
       const metadata = this._element("div", "payback-projection-metadata");
       const method = data?.method ?? {};
@@ -13125,21 +13163,13 @@
         const tariff = this._element("td", "", parts ? decimal(parts.full_tariff) : "—");
         if (parts) {
           const origin = parts.full_tariff_origin;
-          const from = (parts.full_tariff_sources ?? []).map((id) => this._unitLabel(id));
-          if (origin === "month_reference") {
-            tariff.append(this._element(
-              "small", "payback-audit-source", `da fatura de ${from.join(" / ")}`,
-            ));
-          }
           tariff.title = {
-            own_invoice_taxes: "Tarifa homologada da distribuidora, sem tributos e"
-              + " configurada por ano, elevada pelas alíquotas de PIS, COFINS e"
-              + " ICMS desta fatura. Não inclui multa, juros nem iluminação"
-              + " pública, que são encargos e não preço de energia.",
+            own_invoice_taxes: "Tarifa sem impostos informada na integração,"
+              + " elevada pelas alíquotas de PIS, COFINS e ICMS desta fatura."
+              + " Não inclui multa, juros nem iluminação pública, que são"
+              + " encargos e não preço de energia.",
             own_invoice: "Publicada nesta fatura, no item de consumo não compensado.",
-          }[origin] ?? "Esta unidade compensou todo o consumo, então não tem linha de"
-            + " consumo não compensado e não publica tarifa. Vale a tarifa do mês,"
-            + ` regulada e igual para todos — aqui da fatura de ${from.join(", ")}.`;
+          }[origin] ?? "";
         }
         row.append(
           this._element("td", "", this._unitLabel(unit?.unit_id)),

@@ -172,10 +172,11 @@
       },
       "tarifa": {
         "title": "Solar payback — tariff",
-        "description": "Energy tariff **before taxes** (TE + TUSD), per kWh. The payback uses it to value the compensated energy in months when the bill does not show it.\n\n**Where to find it:** on your bill, in the *Tarifa unitária* column of the consumption line; or in the [ANEEL tariff list](https://dadosabertos.aneel.gov.br/dataset/tarifas-distribuidoras-energia-eletrica).\n\n**Was there an adjustment?** Enter the new value with the date it started: each tariff applies from its date until the day before the next one. To fix one, pick the same date; to delete it, leave the value blank.\n\nOnly here for the investment? Leave it as it is and save.\n\n**Entered:**{intervalos}{falta}",
+        "description": "Energy tariff **before taxes** (TE + TUSD), per kWh. The payback uses it to value the compensated energy in months when the bill does not show it.\n\n**In the bills already read:** {nas_faturas}.\n\n**Where to find it:** on your bill, in the *Tarifa unitária* column of the consumption line; or in the [ANEEL tariff list](https://dadosabertos.aneel.gov.br/dataset/tarifas-distribuidoras-energia-eletrica).\n\n**Was there an adjustment?** Enter the new value with the date it started: each tariff applies from its date until the day before the next one. To fix one, pick the same date; to delete it, leave the value blank.\n\nOnly here for the investment? Leave it as it is and save.\n\n**Entered:**{intervalos}{falta}",
         "data": {
           "vigencia": "Applies from",
-          "valor": "Tariff before taxes (per kWh)"
+          "valor": "Tariff before taxes (per kWh)",
+          "confirmar_diferente": "I confirm this value, even if it differs from the bills"
         }
       },
       "investimento": {
@@ -211,6 +212,7 @@
       "swap_refused": "The swap was refused: the date must be after the current meter started, and the new sensor must differ from the current one.",
       "period_invalid": "Enter the payment date.",
       "amount_invalid": "Enter an amount greater than zero, e.g. 25000.00.",
+      "tariff_differs_from_bills": "The bills of this period show another tariff before taxes ({divergencia}). Check the value and the date. If the value is right, tick the confirmation and save again.",
       "tariff_date_required": "Enter the date this tariff started to apply.",
       "tariff_invalid": "Enter the tariff per kWh, greater than zero, e.g. 0.65.",
       "history_keep": "This quantity already had a meter replaced and cannot be left without a sensor: the record of previous meters depends on it.",

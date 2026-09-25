@@ -172,10 +172,11 @@
       },
       "tarifa": {
         "title": "Payback do sistema solar — tarifa",
-        "description": "Tarifa de energia **sem impostos** (TE + TUSD), em R$/kWh. O payback usa esta tarifa para dar valor à energia compensada nos meses em que a fatura não a mostra.\n\n**Onde achar:** na sua fatura, na coluna *Tarifa unitária* da linha de consumo; ou na [lista de tarifas da ANEEL](https://dadosabertos.aneel.gov.br/dataset/tarifas-distribuidoras-energia-eletrica), pela sua distribuidora.\n\n**Houve reajuste?** Informe o novo valor com a data em que começou: cada tarifa vale da sua data até a véspera da próxima, e as anteriores continuam valendo para os meses delas. Para corrigir, escolha a mesma data; para apagar, deixe o valor em branco.\n\nSó veio mexer no investimento? Deixe como está e salve.\n\n**Informadas:**{intervalos}{falta}",
+        "description": "Tarifa de energia **sem impostos** (TE + TUSD), em R$/kWh. O payback usa esta tarifa para dar valor à energia compensada nos meses em que a fatura não a mostra.\n\n**Nas faturas já lidas:** {nas_faturas}.\n\n**Onde achar:** na sua fatura, na coluna *Tarifa unitária* da linha de consumo; ou na [lista de tarifas da ANEEL](https://dadosabertos.aneel.gov.br/dataset/tarifas-distribuidoras-energia-eletrica), pela sua distribuidora.\n\n**Houve reajuste?** Informe o novo valor com a data em que começou: cada tarifa vale da sua data até a véspera da próxima, e as anteriores continuam valendo para os meses delas. Para corrigir, escolha a mesma data; para apagar, deixe o valor em branco.\n\nSó veio mexer no investimento? Deixe como está e salve.\n\n**Informadas:**{intervalos}{falta}",
         "data": {
           "vigencia": "Vale a partir de",
-          "valor": "Tarifa sem impostos (R$/kWh)"
+          "valor": "Tarifa sem impostos (R$/kWh)",
+          "confirmar_diferente": "Confirmo este valor, mesmo diferente das faturas"
         }
       },
       "investimento": {
@@ -211,6 +212,7 @@
       "swap_refused": "A troca não foi aceita: a data precisa ser posterior ao início do medidor atual, e o sensor novo precisa ser diferente do atual.",
       "period_invalid": "Informe a data do pagamento.",
       "amount_invalid": "Informe um valor maior que zero, por exemplo 25000,00.",
+      "tariff_differs_from_bills": "As faturas desse período trazem outra tarifa sem impostos ({divergencia}). Confira o valor e a data. Se o valor estiver certo — uma unidade de outra classe tarifária, por exemplo —, marque a confirmação e salve de novo.",
       "tariff_date_required": "Informe a data em que essa tarifa começou a valer.",
       "tariff_invalid": "Informe a tarifa em R$/kWh, maior que zero, por exemplo 0,65.",
       "history_keep": "Esta grandeza já teve troca de medidor e não pode ficar sem sensor: o registro dos medidores anteriores depende dela.",
