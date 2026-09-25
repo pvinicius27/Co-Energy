@@ -353,9 +353,12 @@ def menu_options(
         "unidade_editar": tem_unidade,
         "sensores": tem_unidade,
         "rateio": podem["distribution"],
-        "tarifa": True,
+        # Tarifa e horário de corte só agem sobre o que o sensor mede: a
+        # tarifa estima o ciclo em andamento, o horário alinha fatura e
+        # leitura. Com só faturas, seriam perguntas sem efeito.
+        "tarifa": podem["measurement"],
         "investimento": podem["generation"],
-        "horario": True,
+        "horario": podem["measurement"],
         "unidade_excluir": tem_unidade,
     }
     return [item for item in MENU_ORDER if disponivel[item]]

@@ -3000,6 +3000,18 @@
       return Array.isArray(this._unitCatalog) && this._unitCatalog.length === 0;
     }
 
+    // Nada para mostrar: nenhuma unidade, ou unidades sem sensor e sem fatura.
+    // O assistente da integracao obriga a criar uma unidade, entao a
+    // instalacao nunca fica "vazia" — e quem desmarcava "tem medidor" e
+    // concluia caia em oito abas sem dado nenhum, sem saber o que faltava.
+    // Com um sensor OU uma fatura, as abas aparecem sozinhas.
+    get _setupIncomplete() {
+      if (this._isEmptyInstallation) return true;
+      if (!Array.isArray(this._unitCatalog) || !this._unitCapabilities) return false;
+      const podem = this._capabilities;
+      return !podem.measurement && !podem.instant_readings && !podem.billing;
+    }
+
     // Enquanto o catalogo nao chegou, "nao sei" nao e "tem unidades". As oito
     // abas apareciam, a pessoa clicava numa delas, e so entao o aviso de ir
     // para a Configuracao surgia por cima — atraso que parecia falha. Sem
@@ -6463,7 +6475,7 @@
       // So a instalacao sem unidade nenhuma vai para a Configuracao: e a unica
       // tela que ela tem. Enquanto a lista de unidades nao chega, nao se sabe
       // se ela e vazia — e a aba em que a pessoa estava fica onde estava.
-      if (this._isEmptyInstallation && this._page !== "configuracao") {
+      if (this._setupIncomplete && this._page !== "configuracao") {
         this._page = "configuracao";
       }
       main.append(this._renderTopBar(data));
@@ -6536,7 +6548,7 @@
       // Lista ainda a caminho: nenhuma aba, por um instante. Mostrar so a
       // Configuracao aqui fazia a recarga parecer uma instalacao vazia.
       if (this._catalogPending) return [];
-      if (this._isEmptyInstallation) {
+      if (this._setupIncomplete) {
         return [["configuracao", "mdi:cog-outline", "Configuração"]];
       }
       // Cada aba declara de que DEPENDE, e o backend diz o que existe. A
@@ -6555,7 +6567,13 @@
       return [
         ["overview", "mdi:view-dashboard-outline", "Visão geral"],
         ["units", "mdi:home-city-outline", "Unidades & análise"],
-        ["auditoria", "mdi:scale-balance", "Auditoria"],
+        // A auditoria compara o que o SENSOR mediu com o que a fatura cobrou.
+        // Sem sensor nenhum nao ha o que comparar, e a aba era uma tabela de
+        // "sem sensor". Com sensor e sem fatura ela fica: diz que espera a
+        // fatura, e isso e informacao.
+        ...(podem.measurement
+          ? [["auditoria", "mdi:scale-balance", "Auditoria"]]
+          : []),
         ...(podem.generation
           ? [["payback", "mdi:solar-power-variant-outline", "Payback"]]
           : []),
@@ -6719,7 +6737,7 @@
       // e a mentira mais facil de contar: nada falhou porque nada rodou. Quem
       // acabou de instalar lia o selo verde e procurava por que a tela estava
       // vazia.
-      if (this._isEmptyInstallation) { tom = "info"; texto = "Aguardando configuração"; }
+      if (this._setupIncomplete) { tom = "info"; texto = "Aguardando configuração"; }
       else if (carregando) { tom = "info"; texto = "Sincronizando"; }
       else if (falha) { tom = "critical"; texto = "Falha de leitura"; }
       else if (criticos > 0) { tom = "critical"; texto = `${criticos} crítico${criticos > 1 ? "s" : ""}`; }
@@ -7839,7 +7857,7 @@
       // Quem acabou de instalar nao veio ajustar nada: veio descobrir por onde
       // comecar. O convite vem antes dos ajustes, que ainda nao tem sobre o
       // que incidir.
-      if (this._isEmptyInstallation) content.append(this._renderWelcome());
+      if (this._setupIncomplete) content.append(this._renderWelcome());
       else content.append(this._renderIntegrationShortcut());
 
       // Cada assunto vira um cartao que abre o proprio dialogo. Empilhados na
@@ -7860,31 +7878,33 @@
     // A numeracao aqui diz algo verdadeiro sobre a ordem, nao e enfeite.
     _renderWelcome() {
       const painel = this._element("section", "panel welcome");
+      const semUnidade = this._isEmptyInstallation;
       painel.append(this._element(
-        "h3", "welcome-title", "Nenhuma unidade ainda",
+        "h3", "welcome-title",
+        semUnidade ? "Nenhuma unidade ainda" : "Falta pouco para ter o que mostrar",
       ));
       painel.append(this._element(
         "p", "welcome-text",
-        "Uma unidade é cada lugar que recebe uma conta de luz: uma casa, um "
-        + "apartamento, um sítio. Comece criando a primeira — o resto da "
-        + "dashboard aparece assim que ela existir.",
+        semUnidade
+          ? "Uma unidade é cada lugar que recebe uma conta de luz: uma casa, um "
+            + "apartamento, um sítio. Crie a primeira na página da integração."
+          : "A unidade já existe, mas ainda não há sensor nem fatura para ela. "
+            + "Qualquer um dos dois basta: assim que um deles chegar, as outras "
+            + "abas aparecem sozinhas.",
       ));
 
-      const passos = this._element("ol", "welcome-steps");
+      const passos = this._element("ul", "welcome-steps");
       const definicoes = [
         [
-          "Crie as unidades",
-          "Nome, se ela gera energia e se tem medidor no Home Assistant.",
+          "Tem medidor no Home Assistant? Aponte o sensor",
+          "Em Configurar, na página da integração: \"Adicionar sensor à "
+          + "unidade\". Com o sensor vêm o consumo, a previsão e os gráficos.",
         ],
         [
-          "Aponte os sensores",
-          "De qual entidade vem cada medição. Unidade sem medidor pula este "
-          + "passo e vive só das faturas.",
-        ],
-        [
-          "Leia as faturas",
-          "Escolha a pasta com os PDFs. A dashboard descobre as UCs e pergunta "
-          + "de qual unidade é cada uma.",
+          "Só tem a conta de luz? Leia as faturas",
+          "Em \"Extração de faturas\", aqui mesmo: escolha a pasta com os PDFs. "
+          + "Com as faturas vêm o consumo oficial, a conta explicada e o "
+          + "histórico por mês.",
         ],
       ];
       for (const [titulo, descricao] of definicoes) {
@@ -7897,7 +7917,18 @@
       }
       painel.append(passos);
 
-      painel.append(this._integrationLink("Criar a primeira unidade", "button primary"));
+      const acoes = this._element("div", "settings-unit-actions");
+      acoes.append(this._integrationLink(
+        semUnidade ? "Criar a primeira unidade" : "Apontar um sensor",
+        "button primary",
+      ));
+      if (!semUnidade) {
+        const faturas = this._button("Ler faturas", "settings-open", "button");
+        faturas.dataset.modal = "extracao";
+        faturas.setAttribute("aria-haspopup", "dialog");
+        acoes.append(faturas);
+      }
+      painel.append(acoes);
       return painel;
     }
 
@@ -7941,15 +7972,20 @@
         ...(dados.distributor_tariffs?.effective ?? {}),
       };
       const vigenteAtual = Object.keys(tarifas).sort().pop() ?? null;
+      // Fronteira do ciclo e tarifa so existem com sensor: a fronteira alinha
+      // a data da fatura com a leitura do medidor, e a tarifa estima o preco
+      // do ciclo em andamento a partir do consumo medido. Quem so tem fatura
+      // tem o preco na propria fatura — os dois cartoes seriam perguntas sem
+      // efeito nenhum.
+      const comSensor = this._capabilities.measurement;
       const definicoes = [
-        [
+        ...(comSensor ? [[
           "ciclo",
           "mdi:clock-outline",
           "Fronteira do ciclo",
           "Horário que o sistema assume para toda leitura de medidor.",
           dados.boundary_time?.effective ?? "—",
-        ],
-        [
+        ], [
           "tarifa",
           "mdi:cash-multiple",
           "Tarifa da distribuidora",
@@ -7957,7 +7993,7 @@
           vigenteAtual
             ? `${tarifas[vigenteAtual]} · desde ${this._formatDate(vigenteAtual)}`
             : "—",
-        ],
+        ]] : []),
         [
           "unidades",
           "mdi:home-group",
@@ -8345,6 +8381,9 @@
       this._invoiceMessage = partes.join(" · ") + ".";
       this._invoiceMessageKind = lote.recusados.length ? "warn" : "ok";
       await this._loadInvoices({ force: true });
+      // A primeira fatura pode ser o que destrava as outras abas: sem refazer
+      // o catalogo, elas so apareciam depois de recarregar a pagina.
+      this._loadUnitCatalog({ force: true });
     }
 
     // Dar dono a uma UC e corrigir o dono sao o mesmo gesto. Mover pede
@@ -8555,6 +8594,7 @@
         const resposta = await this._hass.callWS({ type: INVOICE_DELETE_COMMAND, digest });
         if (resposta?.data) this._invoices = resposta.data;
         this._invoiceMessage = `Fatura ${rotulo} apagada.`;
+        this._loadUnitCatalog({ force: true });
         this._invoiceMessageKind = "ok";
         // Ciclos, auditoria e custo se montam a partir das faturas: o que
         // estava em cache ainda conta com a que saiu.
