@@ -1985,7 +1985,12 @@ def _storage_is_the_source(runtime: CoEnergyRuntime) -> bool:
     manager = runtime.invoice_manager
     if manager is None:
         return False
-    return bool(manager.stored.em_uso) or not runtime.billing_json_path
+    # "Não há arquivo" é não haver arquivo NO DISCO, e não só não haver
+    # caminho declarado. Um modelo trazido de outra instalação chega com o
+    # caminho da de lá; aqui o arquivo não existe, e exigir confirmação para
+    # trocar para as faturas lidas deixava o painel inteiro travado em
+    # "Arquivo de faturas pendente", com as faturas guardadas ao lado.
+    return bool(manager.stored.em_uso) or not _billing_file_exists(runtime)
 
 
 async def _async_billing_document(runtime: CoEnergyRuntime, executor: Any) -> Any:
@@ -1998,11 +2003,18 @@ async def _async_billing_document(runtime: CoEnergyRuntime, executor: Any) -> An
     """
     manager = runtime.invoice_manager
     if manager is not None and _storage_is_the_source(runtime):
+        if not manager.stored.faturas:
+            # Instalacao que ainda nao leu fatura nenhuma. Isso nao e falha:
+            # e o comeco de toda instalacao. Responder com erro travava o
+            # painel inteiro em "Arquivo de faturas pendente" — sem Visao
+            # geral, sem unidades — ate a primeira fatura. Um documento sem
+            # faturas deixa cada tela dizer o que falta onde falta, e a
+            # medicao dos sensores aparece desde o primeiro dia.
+            return parse_equatorial_document(
+                build_invoice_document((), runtime.model)
+            )
         return manager.document(runtime.model)
     if not runtime.billing_json_path:
-        # Instalacao que ainda nao leu fatura nenhuma e nao tem arquivo de
-        # fora. E a mesma ausencia que todo handler ja sabe tratar — dizer
-        # "faturas indisponiveis" —, e nao um caminho invalido.
         raise EquatorialAdapterError("no invoices yet: none stored, no file")
     return _filed_by_uc(runtime, await executor(
         load_equatorial_document, runtime.billing_json_path
