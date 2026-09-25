@@ -114,7 +114,7 @@
           "nome": "Nome da unidade",
           "gera": "Esta unidade gera energia (tem placas solares)",
           "tem_medidor": "Esta unidade tem medidor no Home Assistant",
-          "cor": "Cor nos gráficos",
+          "cor": "Cor da unidade (Visão geral, rateio, payback)",
           "foto": "Foto da unidade",
           "remover_foto": "Remover a foto atual"
         },

@@ -114,7 +114,7 @@
           "nome": "Unit name",
           "gera": "This unit generates energy (has solar panels)",
           "tem_medidor": "This unit has a meter in Home Assistant",
-          "cor": "Colour in charts",
+          "cor": "Unit colour (overview, distribution, payback)",
           "foto": "Unit picture",
           "remover_foto": "Remove the current picture"
         },

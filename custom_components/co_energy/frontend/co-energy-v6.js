@@ -14,9 +14,6 @@
   const SCEE_COMMAND = "co_energy/get_scee";
   const FINANCE_COMMAND = "co_energy/get_finance";
   const DISTRIBUTION_COMMAND = "co_energy/get_distribution";
-  const SET_DISTRIBUTION_COMMAND = "co_energy/set_distribution_immediate";
-  const SCHEDULE_DISTRIBUTION_COMMAND = "co_energy/schedule_distribution";
-  const CANCEL_DISTRIBUTION_COMMAND = "co_energy/cancel_scheduled_distribution";
   const SELF_CONSUMPTION_COMMAND = "co_energy/get_self_consumption";
   const CYCLE_COST_COMMAND = "co_energy/get_cycle_cost_estimate";
   const DAILY_BALANCE_COMMAND = "co_energy/get_daily_balance";
@@ -41,17 +38,8 @@
   // recente, de proposito.
   const VIEW_STORAGE_KEY = "co-energy-v6:view";
   const SETTINGS_GET_COMMAND = "co_energy/get_settings";
-  const SETTINGS_SET_COMMAND = "co_energy/set_settings";
   const SENSORS_GET_COMMAND = "co_energy/get_sensors";
-  const SENSORS_SET_COMMAND = "co_energy/set_sensors";
   const MODEL_GET_COMMAND = "co_energy/get_model_config";
-  const MODEL_IMPORT_COMMAND = "co_energy/import_model";
-  const MODEL_SET_UNIT_COMMAND = "co_energy/set_unit";
-  const MODEL_SET_UNIT_SENSOR_COMMAND = "co_energy/set_unit_sensor";
-  const MODEL_SWAP_METER_COMMAND = "co_energy/swap_unit_meter";
-  // O envio da foto nao passa pelo WebSocket: JSON deixaria uma foto de
-  // celular um terco maior e carregada duas vezes na memoria.
-  const UNIT_IMAGE_UPLOAD_URL = "/api/co_energy/unit_image";
   // As faturas lidas pelo proprio Home Assistant. O PDF vai por HTTP, como a
   // foto, e o resto pelo WebSocket.
   const INVOICE_UPLOAD_URL = "/api/co_energy/invoice";
@@ -138,16 +126,6 @@
     }
     return sha256HexPuro(new Uint8Array(buffer));
   }
-  const ROLE_GENERATOR = "producer_consumer";
-  const ROLE_CONSUMER = "consumer_beneficiary";
-  // Como a tela mostra cada estado de presenca. "Nao existe" e o unico que
-  // pede acao aqui: os outros ou estao certos, ou se resolvem no equipamento.
-  const SENSOR_PRESENCE = {
-    present: ["tag tag-ok", "Recebendo"],
-    unavailable: ["tag tag-warn", "Sem valor"],
-    missing: ["tag tag-crit", "Não existe aqui"],
-    unknown: ["tag tag-log", "Não apurado"],
-  };
   const PAYBACK_PROJECTION_COMMAND = "co_energy/get_payback_projection";
   const ENERGY_FLOW_COMMAND = "co_energy/get_energy_flow";
   const UNITS_COMMAND = "co_energy/get_units";
@@ -164,7 +142,7 @@
   // a extracao que recria o arquivo, e a saude dos dados e onde se enxerga o
   // que esta faltando — ela tem comando proprio, o backend dela ja trata o
   // documento ausente e o redesenho dela nunca reconstroi a pagina inteira.
-  const PAGES_WITHOUT_BILLING = new Set(["configuracao", "diagnostico", "excluir"]);
+  const PAGES_WITHOUT_BILLING = new Set(["configuracao", "diagnostico"]);
   const BILLING_UNAVAILABLE_CODE = "billing_source_unavailable";
   // A pagina de saude se relê sozinha enquanto esta aberta: e ela que tem de
   // mostrar um medidor caindo sem o operador apertar nada.
@@ -410,10 +388,6 @@
       this._financeErrors = new Map();
       this._financeInFlight = new Map();
       this._financeRequestToken = 0;
-      this._selfConsumptionCache = new Map();
-      this._selfConsumptionErrors = new Map();
-      this._selfConsumptionInFlight = new Map();
-      this._selfConsumptionRequestToken = 0;
       this._paybackProjectionData = null;
       this._paybackProjectionError = "";
       this._paybackProjectionInFlight = null;
@@ -422,9 +396,6 @@
       this._distributionError = "";
       this._distributionLoading = false;
       this._distributionRequestToken = 0;
-      this._distributionMode = "idle";
-      this._distributionDraft = null;
-      this._distributionConfirmation = null;
       // Qual vista do rateio esta aberta em popup: "editar", "historico" ou
       // null. O painel completo saiu da Visao geral e passou a morar aqui.
       this._distributionModal = null;
@@ -461,9 +432,6 @@
       this._settings = null;
       this._settingsError = "";
       this._settingsLoading = false;
-      this._settingsDraft = null;
-      this._settingsSaveState = "idle";
-      this._settingsSaveMessage = "";
       // As faturas lidas pelo HA: o que esta guardado, a leitura de uma pasta
       // em andamento, e a comparacao com o arquivo antigo.
       this._invoices = null;
@@ -474,35 +442,23 @@
       this._invoiceCompare = null;
       this._invoiceBusy = false;
       this._settingsModal = null;
-      this._settingsNewTariff = null;
       // Correspondencia entre a entidade declarada no modelo e a desta
       // instalacao. Mesma separacao entre gravado e rascunho: trocar o nome de
       // um sensor muda de onde toda serie le, e nao pode acontecer por tecla.
       this._sensors = null;
-      this._sensorsError = "";
       this._sensorsLoading = false;
-      this._sensorsDraft = null;
-      this._sensorsSaveState = "idle";
-      this._sensorsSaveMessage = "";
       // O modelo em si: quais unidades existem, como se chamam, quem gera.
       // Editar aqui grava no Home Assistant, e o arquivo declarado deixa de
       // ser lido — por isso a origem anda junto com os dados.
       this._modelConfig = null;
-      this._modelError = "";
       this._modelLoading = false;
-      this._modelSaveState = "idle";
-      this._modelSaveMessage = "";
-      this._modelNewUnit = null;
       // A grandeza escolhida que ainda espera um sensor. Ela nao vai
       // para o modelo enquanto nao tiver entidade: uma serie sem fonte
       // nao e valida, e nem deveria ser.
-      this._modelPendingMetric = null;
       // A troca de medidor em curso: entidade nova, instante e rotulo. Nao
       // vai para o modelo enquanto nao tiver os dois primeiros.
-      this._modelPendingSwap = null;
       // Qual unidade esta aberta na configuracao. Uma por vez: com cinco
       // abertas, chegar na ultima exigia rolar a tela inteira.
-      this._modelOpenUnit = null;
       // A unidade cujo titulo deve ser enquadrado no proximo desenho.
       this._modelScrollToUnit = null;
       // Preenchido pelo catalogo de unidades; ate la vale o palpite.
@@ -517,8 +473,6 @@
       this._dataHealthTimer = null;
       this._dataHealthOpen = new Map();
       this._dataHealthInfoOpen = false;
-      this._distributionMutationState = "idle";
-      this._distributionMutationMessage = "";
       this._energyFlowData = null;
       this._energyFlowReference = null;
       // Qual ciclo o painel mostra. null significa "o atual" — nao um valor
@@ -561,7 +515,6 @@
         "touchend", (event) => this._onSwipeEnd(event), { passive: true },
       );
       this.shadowRoot.addEventListener("change", (event) => this._handleChange(event));
-      this.shadowRoot.addEventListener("input", (event) => this._handleInput(event));
     }
 
     // O exemplo que o Home Assistant oferece ao adicionar o cartao. Nao nomeia
@@ -680,10 +633,6 @@
         this._financeErrors.clear();
         this._financeInFlight.clear();
         this._financeRequestToken += 1;
-        this._selfConsumptionCache.clear();
-        this._selfConsumptionErrors.clear();
-        this._selfConsumptionInFlight.clear();
-        this._selfConsumptionRequestToken += 1;
         this._paybackProjectionData = null;
         this._paybackProjectionError = "";
         this._paybackProjectionInFlight = null;
@@ -1009,13 +958,6 @@
       return `${unit}|${reference ?? ""}`;
     }
 
-    _selfConsumptionKey(
-      unit = this._selectedUnit,
-      reference = this._billingReferenceFor(unit),
-    ) {
-      return `${unit}|${reference ?? ""}`;
-    }
-
     _localDateValue(date) {
       const year = date.getFullYear();
       const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -1255,13 +1197,6 @@
         && Date.now() - entry.cachedAt <= CYCLES_CATALOG_TTL_MS;
     }
 
-    _selectedCycle(unit = this._selectedUnit) {
-      const reference = this._billingReferenceFor(unit);
-      return this._cyclesCatalog(unit)?.find((cycle) => (
-        cycle?.status === "closed" && cycle?.billing_reference === reference
-      )) ?? null;
-    }
-
     _selectedHistoryCycle(unit = this._selectedUnit) {
       const cycles = this._selectableHistoryCycles(unit);
       const selectedId = this._historyCycleIds.get(unit);
@@ -1445,7 +1380,6 @@
             this._auditRequestToken += 1;
             this._sceeRequestToken += 1;
             this._financeRequestToken += 1;
-            this._selfConsumptionRequestToken += 1;
           }
         }
         this._cyclesCatalogErrors.delete(unit);
@@ -2996,11 +2930,6 @@
     }
 
     _resetDistributionInteraction() {
-      this._distributionMode = "idle";
-      this._distributionDraft = null;
-      this._distributionConfirmation = null;
-      this._distributionMutationState = "idle";
-      this._distributionMutationMessage = "";
     }
 
     // Quem gera nesta instalacao, segundo o modelo, ou `null` quando ninguem
@@ -3068,24 +2997,6 @@
 
     get _catalogPending() {
       return !Array.isArray(this._unitCatalog);
-    }
-
-    // Os nomes do que a unidade mede, sem repetir e comecando com maiuscula.
-    // O backend rotula em minuscula porque os rotulos tambem aparecem no meio
-    // de frases; aqui eles abrem um item de lista, e "tensão, corrente" lido
-    // depois do nome da unidade parece continuacao da frase anterior.
-    _unitMeasuredNames(unidade) {
-      const rotulos = [];
-      for (const grupo of [unidade?.metrics, unidade?.readings]) {
-        if (!Array.isArray(grupo)) continue;
-        for (const item of grupo) {
-          const bruto = typeof item?.label === "string" ? item.label.trim() : "";
-          if (!bruto) continue;
-          const nome = bruto.charAt(0).toUpperCase() + bruto.slice(1);
-          if (!rotulos.includes(nome)) rotulos.push(nome);
-        }
-      }
-      return rotulos;
     }
 
     // Mantido para quem ainda o consulta, agora apoiado na capacidade em vez
@@ -3203,64 +3114,6 @@
       return request;
     }
 
-    _distributionSharesFrom(rule) {
-      return Object.fromEntries(this._units().map(({ id }) => [
-        id,
-        typeof rule?.shares?.[id] === "string" ? rule.shares[id] : "",
-      ]));
-    }
-
-    _distributionDecimalUnits(value) {
-      if (typeof value !== "string" || !/^(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(value)) {
-        return null;
-      }
-      const [whole, fraction = ""] = value.split(".");
-      const units = (BigInt(whole) * 10000n) + BigInt(fraction.padEnd(4, "0"));
-      return units <= 1000000n ? units : null;
-    }
-
-    _distributionDraftTotal(draft = this._distributionDraft) {
-      if (!draft?.shares) return null;
-      let total = 0n;
-      for (const { id } of this._units()) {
-        const units = this._distributionDecimalUnits(draft.shares[id]);
-        if (units === null) return null;
-        total += units;
-      }
-      return total;
-    }
-
-    _formatDistributionTotal(total) {
-      if (typeof total !== "bigint") return "Inválido";
-      const whole = total / 10000n;
-      const fraction = String(total % 10000n).padStart(4, "0").replace(/0+$/, "");
-      return `${whole}${fraction ? `,${fraction}` : ""}%`;
-    }
-
-    _distributionDraftIsValid(draft = this._distributionDraft) {
-      return this._distributionDraftTotal(draft) === 1000000n;
-    }
-
-    _startDistributionMode(mode) {
-      if (!this._distributionData || this._distributionMutationState === "saving"
-        || this._distributionMutationState === "scheduling"
-        || this._distributionMutationState === "cancelling") return;
-      if (mode === "schedule" && this._distributionData.scheduled !== null) return;
-      this._distributionMode = mode;
-      this._distributionConfirmation = null;
-      this._distributionMutationState = "idle";
-      this._distributionMutationMessage = "";
-      const now = new Date(Date.now() + 60 * 60 * 1000);
-      const local = this._zonedDateTimeParts(now, this._distributionTimezone());
-      this._distributionDraft = {
-        shares: this._distributionSharesFrom(this._distributionData.current),
-        label: "",
-        date: local ? `${local.year}-${local.month}-${local.day}` : "",
-        time: local ? `${local.hour}:${local.minute}` : "",
-      };
-      this._renderDistributionUpdate();
-    }
-
     // O fuso em que a linha do tempo do rateio foi escrita. Na falta dela, o
     // do proprio Home Assistant — nunca um fixo: aqui havia o da instalacao
     // de quem desenvolveu, e uma casa em Manaus veria as datas de vigencia
@@ -3273,71 +3126,6 @@
       if (typeof daCasa === "string" && daCasa.trim()) return daCasa;
       // Ultimo recurso: o do navegador de quem esta olhando.
       return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-    }
-
-    _zonedDateTimeParts(date, timeZone) {
-      try {
-        const parts = new Intl.DateTimeFormat("en-CA", {
-          timeZone,
-          year: "numeric", month: "2-digit", day: "2-digit",
-          hour: "2-digit", minute: "2-digit", second: "2-digit",
-          hourCycle: "h23",
-        }).formatToParts(date);
-        return Object.fromEntries(parts.filter((part) => part.type !== "literal")
-          .map((part) => [part.type, part.value]));
-      } catch {
-        return null;
-      }
-    }
-
-    _timeZoneOffsetMilliseconds(epoch, timeZone) {
-      const parts = this._zonedDateTimeParts(new Date(epoch), timeZone);
-      if (!parts) return null;
-      const representedAsUtc = Date.UTC(
-        Number(parts.year), Number(parts.month) - 1, Number(parts.day),
-        Number(parts.hour), Number(parts.minute), Number(parts.second),
-      );
-      return representedAsUtc - (Math.floor(epoch / 1000) * 1000);
-    }
-
-    _distributionEffectiveFrom(draft = this._distributionDraft) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(draft?.date ?? "")
-        || !/^\d{2}:\d{2}$/.test(draft?.time ?? "")) return null;
-      const [year, month, day] = draft.date.split("-").map((value) => Number(value));
-      const [hour, minute] = draft.time.split(":").map((value) => Number(value));
-      const desiredAsUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
-      const timeZone = this._distributionTimezone();
-      let offset = this._timeZoneOffsetMilliseconds(desiredAsUtc, timeZone);
-      if (offset === null) return null;
-      let epoch = desiredAsUtc - offset;
-      offset = this._timeZoneOffsetMilliseconds(epoch, timeZone);
-      if (offset === null) return null;
-      epoch = desiredAsUtc - offset;
-      const check = this._zonedDateTimeParts(new Date(epoch), timeZone);
-      if (!check || `${check.year}-${check.month}-${check.day}` !== draft.date
-        || `${check.hour}:${check.minute}` !== draft.time) return null;
-      const sign = offset < 0 ? "-" : "+";
-      const absoluteMinutes = Math.abs(offset) / 60000;
-      const offsetHours = String(Math.floor(absoluteMinutes / 60)).padStart(2, "0");
-      const offsetMinutes = String(absoluteMinutes % 60).padStart(2, "0");
-      return `${draft.date}T${draft.time}:00${sign}${offsetHours}:${offsetMinutes}`;
-    }
-
-    _distributionScheduleIsValid() {
-      const effectiveFrom = this._distributionEffectiveFrom();
-      return this._distributionDraftIsValid()
-        && effectiveFrom !== null
-        && new Date(effectiveFrom).getTime() > Date.now();
-    }
-
-    _distributionErrorMessage(error) {
-      const code = error?.code ?? error?.error?.code;
-      return {
-        distribution_unavailable: "Rateio configurado indisponível.",
-        distribution_invalid: "Os dados do rateio são inválidos. Revise os percentuais e a vigência.",
-        distribution_not_found: "Não há alteração agendada para cancelar.",
-        distribution_storage_error: "Não foi possível salvar o rateio.",
-      }[code] ?? "Não foi possível atualizar o rateio.";
     }
 
     _applyDistributionResponse(response) {
@@ -3353,60 +3141,6 @@
       this._distributionData = data;
       this._distributionError = "";
       return data;
-    }
-
-    async _mutateDistribution(type) {
-      if (!this._distributionData || this._distributionMutationState === "saving"
-        || this._distributionMutationState === "scheduling"
-        || this._distributionMutationState === "cancelling") return;
-      const expectedRevision = this._distributionData.revision;
-      if (!Number.isInteger(expectedRevision)) return;
-      const command = {
-        immediate: SET_DISTRIBUTION_COMMAND,
-        schedule: SCHEDULE_DISTRIBUTION_COMMAND,
-        cancel: CANCEL_DISTRIBUTION_COMMAND,
-      }[type];
-      const payload = { type: command, expected_revision: expectedRevision };
-      if (type !== "cancel") {
-        payload.shares = { ...this._distributionDraft.shares };
-        if (this._distributionDraft.label.trim()) payload.label = this._distributionDraft.label.trim();
-      }
-      if (type === "schedule") payload.effective_from = this._distributionEffectiveFrom();
-      this._distributionMutationState = {
-        immediate: "saving", schedule: "scheduling", cancel: "cancelling",
-      }[type];
-      this._distributionMutationMessage = "";
-      this._renderDistributionUpdate();
-      try {
-        const response = await this._hass.callWS(payload);
-        this._applyDistributionResponse(response);
-        this._distributionMode = "idle";
-        this._distributionDraft = null;
-        this._distributionConfirmation = null;
-        this._distributionMutationState = "success";
-        this._distributionMutationMessage = type === "cancel"
-          ? "Agendamento cancelado com sucesso."
-          : type === "schedule"
-            ? "Alteração de rateio agendada com sucesso."
-            : "Rateio atualizado com sucesso.";
-      } catch (error) {
-        const code = error?.code ?? error?.error?.code;
-        this._distributionConfirmation = null;
-        if (code === "distribution_revision_conflict") {
-          this._distributionMode = "idle";
-          this._distributionDraft = null;
-          this._distributionMutationState = "revision_conflict";
-          this._distributionMutationMessage = "A configuração de rateio foi alterada em outro lugar. Os dados serão recarregados antes de uma nova tentativa.";
-          this._distributionData = null;
-          this._renderDistributionUpdate();
-          await this._loadDistribution({ force: true });
-          this._distributionMutationState = "revision_conflict";
-        } else {
-          this._distributionMutationState = "error";
-          this._distributionMutationMessage = this._distributionErrorMessage(error);
-        }
-      }
-      this._renderDistributionUpdate();
     }
 
     async _loadDistribution({ force = false } = {}) {
@@ -3457,13 +3191,6 @@
     }
 
     _renderDistributionUpdate() {
-      const current = this.shadowRoot.querySelector("[data-distribution-section]");
-      // A seção dentro do popup é reconstruída pelo próprio popup, com a
-      // moldura desligada. Trocá-la aqui devolveria a borda e o título de
-      // painel dentro do diálogo.
-      if (current && !current.closest("[data-distribution-modal-host]")) {
-        current.replaceWith(this._renderDistribution());
-      }
       const donut = this.shadowRoot.querySelector("[data-distribution-donut]");
       if (donut) donut.replaceWith(this._renderDistributionDonut());
       if (this._distributionModal) this._renderDistributionModalUpdate();
@@ -3774,9 +3501,6 @@
       // A composicao le o mesmo payload do SCEE: atualizar so um dos dois
       // deixaria a barra falando de um ciclo e a tabela de outro.
       this._renderCompositionUpdate();
-      const current = this.shadowRoot.querySelector("[data-scee-section]");
-      if (!current) return;
-      current.replaceWith(this._renderScee());
     }
 
     _scheduleSceeLoading() {
@@ -3871,9 +3595,10 @@
       return request;
     }
 
+    // O financeiro da fatura alimenta a conta explicada: e ela que redesenha
+    // quando o valor chega.
     _renderFinanceUpdate() {
-      const current = this.shadowRoot.querySelector("[data-finance-section]");
-      if (current) current.replaceWith(this._renderFinance());
+      if (this._financeCache.has(this._financeKey())) this._renderCompositionUpdate();
     }
 
     _scheduleFinanceLoading() {
@@ -3990,123 +3715,6 @@
           this._loadPaybackProjection();
         }
       });
-    }
-
-    async _loadSelfConsumption({ force = false } = {}) {
-      if (this._selectedUnit !== this._generator || !this._hass
-        || typeof this._hass.callWS !== "function") return null;
-      const unit = this._generator;
-      const selectedCycle = this._selectedCycle(unit);
-      const billingReference = selectedCycle?.status === "closed"
-        && typeof selectedCycle.billing_reference === "string"
-        ? selectedCycle.billing_reference
-        : null;
-      if (!this._closedBillingReferences(unit).includes(billingReference)) {
-        this._renderSelfConsumptionUpdate();
-        return null;
-      }
-      const key = this._selfConsumptionKey(unit, billingReference);
-      if (!force && this._selfConsumptionCache.has(key)) {
-        this._renderSelfConsumptionUpdate();
-        return this._selfConsumptionCache.get(key);
-      }
-      if (!force && this._selfConsumptionInFlight.has(key)) {
-        return this._selfConsumptionInFlight.get(key);
-      }
-
-      const token = this._selfConsumptionRequestToken;
-      const configGeneration = this._configGeneration;
-      const requestHass = this._hass;
-      this._selfConsumptionErrors.delete(key);
-      this._renderSelfConsumptionUpdate();
-      const request = requestHass.callWS({
-        type: SELF_CONSUMPTION_COMMAND,
-        unit_id: unit,
-        billing_reference: billingReference,
-      }).then((response) => {
-        if (!response || response.api_version !== API_VERSION
-          || !response.data || typeof response.data !== "object"
-          || Array.isArray(response.data)) {
-          throw new Error("Resposta de autoconsumo físico inválida.");
-        }
-        if (response.data.unit_id !== unit
-          || response.data.billing_reference !== billingReference) {
-          throw new Error("Resposta de autoconsumo físico não corresponde ao ciclo solicitado.");
-        }
-        if (configGeneration !== this._configGeneration) return null;
-        const isCurrent = token === this._selfConsumptionRequestToken
-          && this._selectedUnit === this._generator
-          && billingReference === this._selectedCycle()?.billing_reference
-          && key === this._selfConsumptionKey();
-        if (!isCurrent) return null;
-        this._selfConsumptionCache.set(key, response.data);
-        this._selfConsumptionErrors.delete(key);
-        this._renderSelfConsumptionUpdate();
-        return response.data;
-      }).catch((error) => {
-        if (configGeneration !== this._configGeneration) return null;
-        const isCurrent = token === this._selfConsumptionRequestToken
-          && this._selectedUnit === this._generator
-          && billingReference === this._selectedCycle()?.billing_reference
-          && key === this._selfConsumptionKey();
-        if (!isCurrent) return null;
-        this._selfConsumptionErrors.set(key, this._selfConsumptionErrorState(error));
-        this._renderSelfConsumptionUpdate();
-        return null;
-      }).finally(() => {
-        if (this._selfConsumptionInFlight.get(key) === request) {
-          this._selfConsumptionInFlight.delete(key);
-        }
-        if (configGeneration === this._configGeneration
-          && token === this._selfConsumptionRequestToken
-          && this._selectedUnit === this._generator
-          && billingReference === this._selectedCycle()?.billing_reference
-          && key === this._selfConsumptionKey()) this._renderSelfConsumptionUpdate();
-      });
-      this._selfConsumptionInFlight.set(key, request);
-      this._renderSelfConsumptionUpdate();
-      return request;
-    }
-
-    _renderSelfConsumptionUpdate() {
-      const current = this.shadowRoot.querySelector("[data-self-consumption-section]");
-      if (current) {
-        const next = this._renderSelfConsumption();
-        if (next) current.replaceWith(next);
-        else current.remove();
-      }
-    }
-
-    _scheduleSelfConsumptionLoading() {
-      if (this._selectedUnit !== this._generator) return;
-      queueMicrotask(async () => {
-        if (!this.isConnected) return;
-        if (!Array.isArray(this._cyclesCatalog(this._generator))) {
-          await this._loadCyclesCatalog({ allowOutsideCycle: true });
-        }
-        if (!this.isConnected) return;
-        const cycle = this._selectedCycle(this._generator);
-        const reference = cycle?.status === "closed"
-          && typeof cycle.billing_reference === "string"
-          ? cycle.billing_reference
-          : null;
-        if (!reference) {
-          this._renderSelfConsumptionUpdate();
-          return;
-        }
-        const key = this._selfConsumptionKey(this._generator, reference);
-        if (!this._selfConsumptionCache.has(key) && !this._selfConsumptionInFlight.has(key)) {
-          this._loadSelfConsumption();
-        }
-      });
-    }
-
-    _selfConsumptionErrorState(error) {
-      const code = error?.code ?? error?.error?.code;
-      if (code === "self_consumption_invalid_reference") return "not_found";
-      if (code === "self_consumption_unavailable"
-        || code === "billing_source_unavailable") return "unavailable";
-      return "error";
     }
 
     _renderComparisonUpdate() {
@@ -4274,7 +3882,6 @@
       this._auditRequestToken += 1;
       this._sceeRequestToken += 1;
       this._financeRequestToken += 1;
-      this._selfConsumptionRequestToken += 1;
       this._render();
       if (!this._cache.has(this._key(unit))) this._loadSelected();
       this._ensureBillingOnlyMode(unit).then(() => {
@@ -4371,10 +3978,6 @@
       const financeKey = this._financeKey();
       this._financeCache.delete(financeKey);
       this._financeErrors.delete(financeKey);
-      this._selfConsumptionRequestToken += 1;
-      const selfConsumptionKey = this._selfConsumptionKey();
-      this._selfConsumptionCache.delete(selfConsumptionKey);
-      this._selfConsumptionErrors.delete(selfConsumptionKey);
       this._paybackProjectionRequestToken += 1;
       this._paybackProjectionData = null;
       this._paybackProjectionError = "";
@@ -4804,7 +4407,6 @@
       this._auditRequestToken += 1;
       this._sceeRequestToken += 1;
       this._financeRequestToken += 1;
-      this._selfConsumptionRequestToken += 1;
       this._energyFlowRequestToken += 1;
       this._energyFlowData = null;
       this._energyFlowReference = reference;
@@ -4814,7 +4416,6 @@
       this._loadAudit();
       this._loadScee();
       this._loadFinance();
-      if (this._selectedUnit === this._generator) this._loadSelfConsumption();
       if (this._page === "overview") this._loadEnergyFlow({ force: true });
     }
 
@@ -4844,13 +4445,6 @@
       if (currentIndex < 0 || targetIndex < 0
         || targetIndex >= references.length) return;
       this._setBillingReference(references[targetIndex]);
-    }
-
-    _retrySelfConsumption() {
-      const key = this._selfConsumptionKey();
-      this._selfConsumptionErrors.delete(key);
-      this._renderSelfConsumptionUpdate();
-      this._loadSelfConsumption({ force: true });
     }
 
     _handleClick(event) {
@@ -4929,7 +4523,6 @@
       if (action === "audit-retry") this._retryAudit();
       if (action === "billing-reference-previous") this._shiftBillingReference(1);
       if (action === "billing-reference-next") this._shiftBillingReference(-1);
-      if (action === "self-consumption-retry") this._retrySelfConsumption();
       if (action === "payback-projection-retry") this._loadPaybackProjection({ force: true });
       if (action === "payback-chart-mode") {
         const modo = button.dataset.mode === "curve" ? "curve" : "bars";
@@ -4950,9 +4543,8 @@
         this._refresh();
         return;
       }
-      if (action === "distribution-open-editor" || action === "distribution-open-history") {
-        this._distributionModal = action === "distribution-open-history"
-          ? "historico" : "editar";
+      if (action === "distribution-open-history") {
+        this._distributionModal = "historico";
         this._renderDistributionModalUpdate();
         return;
       }
@@ -4965,85 +4557,6 @@
         if (this._settingsModal === "unidades") this._loadModelConfig({ force: true });
         if (this._settingsModal === "extracao") this._loadInvoices({ force: true });
         if (this._settingsModal === "rateio") this._loadDistribution({ force: true });
-        return;
-      }
-      if (action === "model-import") {
-        this._importModel();
-        return;
-      }
-      if (action === "unit-add-open") {
-        this._modelNewUnit = { nome: "", gera: false };
-        this._modelSaveState = "idle";
-        this._modelSaveMessage = "";
-        this._renderSettingsUpdate();
-        return;
-      }
-      if (action === "unit-add-cancel") {
-        this._modelNewUnit = null;
-        this._renderSettingsUpdate();
-        return;
-      }
-      if (action === "unit-add-confirm") {
-        this._addUnit();
-        return;
-      }
-      if (action === "unit-toggle") {
-        const alvo = button.dataset.unit;
-        const abrindo = this._modelOpenUnit !== alvo;
-        this._modelOpenUnit = abrindo ? alvo : null;
-        // Abrir uma unidade leva o titulo dela para o topo do dialogo. Sem
-        // isso, abrir a ultima da lista deixava o conteudo fora da vista e
-        // obrigava a rolar atras do que se acabou de pedir.
-        this._modelScrollToUnit = abrindo ? alvo : null;
-        // Fechar a unidade abandona o que estava em meio a edicao nela: o
-        // rascunho pertence a linha que sumiu da tela.
-        this._modelPendingMetric = null;
-        this._modelPendingSwap = null;
-        this._renderSettingsUpdate();
-        return;
-      }
-      if (action === "unit-meter-swap") {
-        this._modelPendingSwap = {
-          unit: button.dataset.unit,
-          metric: button.dataset.metric,
-          entity: "",
-          at: "",
-          label: "",
-        };
-        this._modelSaveState = "idle";
-        this._modelSaveMessage = "";
-        this._renderSettingsUpdate();
-        return;
-      }
-      if (action === "unit-meter-swap-cancel") {
-        this._modelPendingSwap = null;
-        this._renderSettingsUpdate();
-        return;
-      }
-      if (action === "unit-meter-swap-confirm") {
-        this._swapUnitMeter();
-        return;
-      }
-      if (action === "unit-metric-new-one") {
-        this._modelPendingMetric = {
-          unit: button.dataset.unit, metric: button.dataset.metric,
-        };
-        this._renderSettingsUpdate();
-        return;
-      }
-      if (action === "unit-metric-cancel") {
-        this._modelPendingMetric = null;
-        this._renderSettingsUpdate();
-        return;
-      }
-      if (action === "unit-metric-remove") {
-        const rotulo = button.dataset.label ?? "esta medição";
-        // Tirar a medicao pode tirar junto o que dependia dela — autoconsumo
-        // sai quando a exportacao sai. Confirmar evita a surpresa.
-        if (window.confirm(
-          `Excluir ${rotulo}? O que é calculado a partir dela também `
-          + "deixa de existir. As leituras no Home Assistant continuam lá.",
-        )) this._setUnitSensor(button.dataset.unit, button.dataset.metric, null);
         return;
       }
       if (action === "invoice-compare") {
@@ -5074,87 +4587,8 @@
         this._deleteInvoice(button.dataset.digest, button.dataset.label ?? "selecionada");
         return;
       }
-      if (action === "unit-color-clear") {
-        this._setUnitField(button.dataset.unit, "color", null);
-        return;
-      }
-      if (action === "unit-image-clear") {
-        this._setUnitField(button.dataset.unit, "image", null);
-        return;
-      }
-      if (action === "unit-remove") {
-        // Excluir uma unidade apaga a configuracao dela, e o historico do
-        // Recorder deixa de ter quem o leia. Confirmar pelo nome evita o
-        // clique errado numa lista de linhas parecidas.
-        const nome = button.dataset.name ?? "esta unidade";
-        if (window.confirm(
-          `Excluir ${nome}? A configuração dela é apagada. `
-          + "As leituras já gravadas no Home Assistant continuam lá, mas "
-          + "deixam de ser exibidas.",
-        )) this._removeUnit(button.dataset.unit);
-        return;
-      }
-      if (action === "sensors-save") {
-        this._saveSensors();
-        return;
-      }
-      if (action === "sensors-reset") {
-        // Restaurar e esvaziar a correspondencia, nao copiar a entidade
-        // declarada para dentro dela: o YAML volta a ser a unica palavra.
-        this._sensorsDraft = {};
-        for (const fonte of this._sensorSources()) {
-          this._sensorsDraft[fonte.declared_entity_id] = "";
-        }
-        this._sensorsSaveState = "idle";
-        this._sensorsSaveMessage = "";
-        this._renderSettingsUpdate();
-        return;
-      }
-      if (action === "settings-vigencia-new") {
-        this._settingsNewTariff = { data: "", valor: "", erro: "" };
-        this._renderSettingsUpdate();
-        return;
-      }
-      if (action === "settings-vigencia-cancel") {
-        this._settingsNewTariff = null;
-        this._renderSettingsUpdate();
-        return;
-      }
-      if (action === "settings-vigencia-add") {
-        this._addSettingsVigencia();
-        return;
-      }
       if (action === "settings-modal-close") {
         this._closeSettingsModal();
-        return;
-      }
-      if (action === "settings-save") {
-        this._saveSettings();
-        return;
-      }
-      if (action === "settings-clear-investment") {
-        if (this._settingsDraft) {
-          this._settingsDraft.investimento = "";
-          this._settingsDraft.investimentoMes = "";
-        }
-        this._settingsSaveState = "idle";
-        this._settingsSaveMessage = "";
-        this._renderSettingsUpdate();
-        return;
-      }
-      if (action === "settings-reset") {
-        // Restaurar e esvaziar o ajuste, nao copiar o declarado para dentro
-        // dele: o YAML continua sendo a base, e o campo vazio e como se diz
-        // isso ao backend.
-        this._settingsDraft = {
-          boundary: "", tarifas: {}, investimento: "", investimentoMes: "",
-        };
-        for (const ano of Object.keys(
-          this._settings?.distributor_tariffs?.declared ?? {},
-        )) this._settingsDraft.tarifas[ano] = "";
-        this._settingsSaveState = "idle";
-        this._settingsSaveMessage = "";
-        this._renderSettingsUpdate();
         return;
       }
       if (action === "energy-flow-period-kind") {
@@ -5182,35 +4616,6 @@
         this._renderDistributionModalUpdate();
         return;
       }
-      if (action === "distribution-edit") this._startDistributionMode("edit");
-      if (action === "distribution-schedule") this._startDistributionMode("schedule");
-      if (action === "distribution-close") {
-        this._distributionMode = "idle";
-        this._distributionDraft = null;
-        this._distributionConfirmation = null;
-        this._distributionMutationState = "idle";
-        this._distributionMutationMessage = "";
-        this._renderDistributionUpdate();
-      }
-      if (action === "distribution-review-immediate" && this._distributionDraftIsValid()) {
-        this._distributionConfirmation = "immediate";
-        this._renderDistributionUpdate();
-      }
-      if (action === "distribution-review-schedule" && this._distributionScheduleIsValid()) {
-        this._distributionConfirmation = "schedule";
-        this._renderDistributionUpdate();
-      }
-      if (action === "distribution-review-cancel" && this._distributionData?.scheduled) {
-        this._distributionConfirmation = "cancel";
-        this._renderDistributionUpdate();
-      }
-      if (action === "distribution-dismiss-confirmation") {
-        this._distributionConfirmation = null;
-        this._renderDistributionUpdate();
-      }
-      if (action === "distribution-confirm-immediate") this._mutateDistribution("immediate");
-      if (action === "distribution-confirm-schedule") this._mutateDistribution("schedule");
-      if (action === "distribution-confirm-cancel") this._mutateDistribution("cancel");
       if (action === "comparison-strategy") {
         this._setComparisonStrategy(button.dataset.strategy);
       }
@@ -5298,117 +4703,6 @@
         this._setEnergyFlowCalendar(flowDate.value);
         return;
       }
-      const settingsBoundary = event.target.closest(
-        'input[data-action="settings-boundary"]',
-      );
-      if (settingsBoundary && this.shadowRoot.contains(settingsBoundary)) {
-        this._setSettingsDraft("boundary", settingsBoundary.value);
-        return;
-      }
-      const investimento = event.target.closest(
-        'input[data-action="settings-investment"]',
-      );
-      if (investimento && this.shadowRoot.contains(investimento)) {
-        this._setSettingsDraft(investimento.dataset.field, investimento.value);
-        return;
-      }
-      const sensorEntity = event.target.closest(
-        'input[data-action="sensor-entity"]',
-      );
-      if (sensorEntity && this.shadowRoot.contains(sensorEntity)) {
-        this._setSensorDraft(sensorEntity.dataset.declared, sensorEntity.value);
-        return;
-      }
-      const unitName = event.target.closest('input[data-action="unit-name"]');
-      if (unitName && this.shadowRoot.contains(unitName)) {
-        const valor = unitName.value.trim();
-        // Campo vazio nao apaga o nome: o backend recusaria, e o operador
-        // ficaria com um erro no lugar do nome que ele ainda esta digitando.
-        if (valor) this._setUnitField(unitName.dataset.unit, "name", valor);
-        else this._renderSettingsUpdate();
-        return;
-      }
-      const unitColor = event.target.closest('input[data-action="unit-color"]');
-      if (unitColor && this.shadowRoot.contains(unitColor)) {
-        this._setUnitField(unitColor.dataset.unit, "color", unitColor.value);
-        return;
-      }
-      const unitMeasured = event.target.closest(
-        'input[data-action="unit-measured"]',
-      );
-      if (unitMeasured && this.shadowRoot.contains(unitMeasured)) {
-        this._setUnitField(
-          unitMeasured.dataset.unit, "measured", unitMeasured.checked,
-        );
-        return;
-      }
-      const unitRole = event.target.closest('input[data-action="unit-role"]');
-      if (unitRole && this.shadowRoot.contains(unitRole)) {
-        this._setUnitField(
-          unitRole.dataset.unit,
-          "role",
-          unitRole.checked ? ROLE_GENERATOR : ROLE_CONSUMER,
-        );
-        return;
-      }
-      const metricEntity = event.target.closest(
-        'input[data-action="unit-metric-entity"]',
-      );
-      if (metricEntity && this.shadowRoot.contains(metricEntity)) {
-        const valor = metricEntity.value.trim();
-        // Campo esvaziado nao remove a medicao em silencio: remover tem botao
-        // proprio, com confirmacao, porque leva junto o que dependia dela.
-        if (valor) {
-          this._setUnitSensor(
-            metricEntity.dataset.unit, metricEntity.dataset.metric, valor,
-          );
-        } else {
-          this._renderSettingsUpdate();
-        }
-        return;
-      }
-      const sourceEntity = event.target.closest(
-        'input[data-action="unit-source-entity"]',
-      );
-      if (sourceEntity && this.shadowRoot.contains(sourceEntity)) {
-        const valor = sourceEntity.value.trim();
-        // Uma grandeza com duas fontes nao se resolve trocando a entidade no
-        // lugar: cada fonte cobre um trecho, e o comando precisa saber qual.
-        if (valor && valor !== sourceEntity.dataset.entity) {
-          this._setUnitSensor(
-            sourceEntity.dataset.unit, sourceEntity.dataset.metric, valor,
-          );
-        } else {
-          this._renderSettingsUpdate();
-        }
-        return;
-      }
-      const swapField = event.target.closest(
-        'input[data-action="swap-entity"], input[data-action="swap-at"],'
-        + ' input[data-action="swap-label"]',
-      );
-      if (swapField && this.shadowRoot.contains(swapField)) {
-        if (!this._modelPendingSwap) return;
-        const campo = {
-          "swap-entity": "entity", "swap-at": "at", "swap-label": "label",
-        }[swapField.dataset.action];
-        this._modelPendingSwap[campo] = swapField.value;
-        return;
-      }
-      const metricNew = event.target.closest(
-        'select[data-action="unit-metric-new"]',
-      );
-      if (metricNew && this.shadowRoot.contains(metricNew)) {
-        const metric = metricNew.value;
-        metricNew.value = "";
-        if (!metric) return;
-        // A grandeza nasce sem sensor e com o campo pronto para receber um.
-        // Gravar so acontece quando houver entidade: o modelo nao aceita uma
-        // serie sem fonte, e nem deveria.
-        this._modelPendingMetric = { unit: metricNew.dataset.unit, metric };
-        this._renderSettingsUpdate();
-        return;
-      }
       const pastaFaturas = event.target.closest(
         'input[data-action="invoice-folder"], input[data-action="invoice-files"]',
       );
@@ -5435,48 +4729,6 @@
         this._setInvoiceUcOwner(donoUc.dataset.uc, donoUc.value || null);
         return;
       }
-      const unitImage = event.target.closest('input[data-action="unit-image"]');
-      if (unitImage && this.shadowRoot.contains(unitImage)) {
-        const arquivo = unitImage.files?.[0];
-        // O campo e limpo antes do envio: sem isso, escolher o mesmo arquivo
-        // duas vezes seguidas nao dispara o evento na segunda.
-        unitImage.value = "";
-        this._uploadUnitImage(unitImage.dataset.unit, arquivo);
-        return;
-      }
-      const novaUnidade = event.target.closest(
-        'input[data-action="unit-new-name"], input[data-action="unit-new-role"]',
-      );
-      if (novaUnidade && this.shadowRoot.contains(novaUnidade)) {
-        if (!this._modelNewUnit) return;
-        if (novaUnidade.dataset.action === "unit-new-name") {
-          this._modelNewUnit.nome = novaUnidade.value;
-        } else {
-          this._modelNewUnit.gera = novaUnidade.checked;
-        }
-        return;
-      }
-      const novaVigencia = event.target.closest(
-        'input[data-action="settings-vigencia-date"],'
-        + ' input[data-action="settings-vigencia-value"]',
-      );
-      if (novaVigencia && this.shadowRoot.contains(novaVigencia)) {
-        if (!this._settingsNewTariff) return;
-        const campo = novaVigencia.dataset.action === "settings-vigencia-date"
-          ? "data" : "valor";
-        this._settingsNewTariff[campo] = novaVigencia.value;
-        this._settingsNewTariff.erro = "";
-        return;
-      }
-      const settingsTariff = event.target.closest(
-        'input[data-action="settings-tariff"]',
-      );
-      if (settingsTariff && this.shadowRoot.contains(settingsTariff)) {
-        this._setSettingsDraft(
-          "tarifa", settingsTariff.value, settingsTariff.dataset.vigencia,
-        );
-        return;
-      }
       const cycleCut = event.target.closest(
         'input[data-action="comparison-cycle-cut"]',
       );
@@ -5491,30 +4743,6 @@
       const input = event.target.closest('input[data-action="history-date"]');
       if (!input || !this.shadowRoot.contains(input)) return;
       this._setHistoryReference(input.value);
-    }
-
-    _handleInput(event) {
-      const input = event.target.closest("[data-distribution-field]");
-      if (!input || !this.shadowRoot.contains(input) || !this._distributionDraft) return;
-      const field = input.dataset.distributionField;
-      if (field === "label" || field === "date" || field === "time") {
-        this._distributionDraft[field] = input.value;
-      } else if (this._units().some((unit) => unit.id === field)) {
-        this._distributionDraft.shares[field] = input.value;
-      } else {
-        return;
-      }
-      this._distributionConfirmation = null;
-      this._distributionMutationMessage = "";
-      this._renderDistributionUpdate();
-      const replacement = this.shadowRoot.querySelector(
-        `[data-distribution-field="${field}"]`,
-      );
-      replacement?.focus();
-      if (replacement?.setSelectionRange) {
-        const end = replacement.value.length;
-        replacement.setSelectionRange(end, end);
-      }
     }
 
     _element(tag, className = "", text = null) {
@@ -6636,7 +5864,6 @@
 
       this._scheduleHistoryRendering();
       this._scheduleComparisonRendering();
-      this._scheduleSelfConsumptionLoading();
       this._scheduleSceeLoading();
       this._scheduleFinanceLoading();
       this._schedulePaybackProjectionLoading();
@@ -6700,7 +5927,6 @@
         ["diagnostico", "mdi:heart-pulse", "Saúde dos dados"],
         ["alertas", "mdi:bell-alert-outline", "Alertas"],
         ["configuracao", "mdi:cog-outline", "Configuração"],
-        ["excluir", "mdi:trash-can-outline", "Excluir"],
       ];
     }
 
@@ -6843,10 +6069,6 @@
       if (this._page === "configuracao") {
         return "Ajustes que valem para todo o sistema";
       }
-      if (this._page === "excluir") {
-        return `${data?.snapshot?.name ?? this._unitLabel(this._selectedUnit)} `
-          + "· seções movidas de Unidades & análise";
-      }
       return "";
     }
 
@@ -6947,9 +6169,6 @@
           this._loadModelConfig();
           this._loadInvoices();
         });
-      }
-      if (this._page === "excluir") {
-        page.append(this._renderExclusionPage(data));
       }
       if (this._page === "alertas") {
         page.append(this._renderAlertsPage());
@@ -7306,7 +6525,6 @@
           throw new Error("Resposta de configuração inválida.");
         }
         this._settings = response.data;
-        this._settingsDraft = this._settingsDraftFrom(response.data);
       } catch (error) {
         this._settingsError = error?.message ?? "Configuração indisponível.";
       } finally {
@@ -7320,7 +6538,6 @@
       if (!this._hass || typeof this._hass.callWS !== "function") return null;
       if (!force && (this._modelConfig || this._modelLoading)) return this._modelConfig;
       this._modelLoading = true;
-      this._modelError = "";
       this._renderSettingsUpdate();
       try {
         const response = await this._hass.callWS({ type: MODEL_GET_COMMAND });
@@ -7329,162 +6546,11 @@
         }
         this._modelConfig = response.data;
       } catch (error) {
-        this._modelError = error?.message ?? "Configuração indisponível.";
       } finally {
         this._modelLoading = false;
         this._renderSettingsUpdate();
       }
       return this._modelConfig;
-    }
-
-    // Toda edicao do modelo passa por aqui: o backend devolve o estado inteiro
-    // depois da mudanca, e e ele que substitui o que a tela mostrava. Nao ha
-    // rascunho a conciliar porque nao ha o que conciliar — a resposta e a
-    // verdade.
-    // O backend recusa em ingles, com a razao tecnica. Quem le a tela nao
-    // precisa da razao tecnica — precisa saber o que fazer com ela.
-    _modelErrorText(bruto) {
-      const texto = String(bruto ?? "");
-      if (/only one unit may generate/.test(texto)) {
-        const outra = texto.match(/'([^']+)'/)?.[1];
-        return `${outra ? this._unitLabel(outra) : "Outra unidade"} já gera `
-          + "energia. Só uma unidade pode gerar: desmarque a outra primeiro.";
-      }
-      if (/last unit cannot be removed/.test(texto)) {
-        return "Esta é a última unidade. O sistema precisa de pelo menos uma.";
-      }
-      if (/more than one source/.test(texto)) {
-        return "Esta medição tem histórico em dois trechos. Use “Trocar "
-          + "medidor” para registrar uma troca nova.";
-      }
-      if (/already ends at/.test(texto)) {
-        return "Esta fonte já foi encerrada por uma troca anterior.";
-      }
-      if (/the new meter is the one already in use/.test(texto)) {
-        return "Este já é o medidor em uso. Informe o medidor novo.";
-      }
-      if (/swap must come after/.test(texto)) {
-        return "A data da troca precisa ser posterior ao início do medidor atual.";
-      }
-      if (/not a valid datetime|swap instant/.test(texto)) {
-        return "Informe a data e a hora da troca.";
-      }
-      return texto || "Não foi possível aplicar a alteração.";
-    }
-
-    async _applyModelChange(mensagem, { sucesso = "Alterado." } = {}) {
-      if (!this._hass || typeof this._hass.callWS !== "function") return false;
-      this._modelSaveState = "saving";
-      this._modelSaveMessage = "";
-      this._renderSettingsUpdate();
-      try {
-        const response = await this._hass.callWS(mensagem);
-        if (!response || response.api_version !== API_VERSION || !response.data) {
-          throw new Error("Resposta de configuração inválida.");
-        }
-        this._modelConfig = response.data;
-        this._modelSaveState = "saved";
-        this._modelSaveMessage = sucesso;
-        // Mudar o modelo muda o que cada calculo le. O que esta em cache foi
-        // obtido do modelo anterior; descartar e mais honesto do que deixar
-        // numeros de duas configuracoes na mesma tela.
-        this._invalidateDerivedCaches();
-        this._unitCatalog = null;
-        this._loadUnitCatalog?.();
-      } catch (error) {
-        this._modelSaveState = "error";
-        this._modelSaveMessage = this._modelErrorText(error?.message);
-        this._renderSettingsUpdate();
-        return false;
-      }
-      this._renderSettingsUpdate();
-      return true;
-    }
-
-    async _importModel() {
-      await this._applyModelChange(
-        { type: MODEL_IMPORT_COMMAND },
-        { sucesso: "Modelo importado. A edição já vale." },
-      );
-    }
-
-    async _setUnitSensor(unitId, metric, entityId) {
-      await this._applyModelChange(
-        {
-          type: MODEL_SET_UNIT_SENSOR_COMMAND,
-          unit_id: unitId,
-          metric,
-          entity_id: entityId,
-        },
-        { sucesso: entityId ? "Sensor aplicado." : "Medição removida." },
-      );
-      this._modelPendingMetric = null;
-      this._renderSettingsUpdate();
-    }
-
-    async _swapUnitMeter() {
-      const rascunho = this._modelPendingSwap;
-      if (!rascunho) return;
-      const entidade = String(rascunho.entity ?? "").trim();
-      const quando = String(rascunho.at ?? "").trim();
-      if (!entidade || !quando) {
-        this._modelSaveState = "error";
-        this._modelSaveMessage =
-          "Informe a entidade do medidor novo e a data da troca.";
-        this._renderSettingsUpdate();
-        return;
-      }
-      const ok = await this._applyModelChange(
-        {
-          type: MODEL_SWAP_METER_COMMAND,
-          unit_id: rascunho.unit,
-          metric: rascunho.metric,
-          entity_id: entidade,
-          at: quando,
-          label: String(rascunho.label ?? "").trim() || null,
-        },
-        { sucesso: "Medidor trocado. O histórico anterior segue no lugar." },
-      );
-      if (ok) {
-        this._modelPendingSwap = null;
-        this._renderSettingsUpdate();
-      }
-    }
-
-    async _setUnitField(unitId, campo, valor) {
-      await this._applyModelChange(
-        { type: MODEL_SET_UNIT_COMMAND, unit_id: unitId, [campo]: valor },
-      );
-    }
-
-    async _addUnit() {
-      const nome = String(this._modelNewUnit?.nome ?? "").trim();
-      if (!nome) {
-        this._modelSaveState = "error";
-        this._modelSaveMessage = "Informe o nome da unidade.";
-        this._renderSettingsUpdate();
-        return;
-      }
-      const ok = await this._applyModelChange(
-        {
-          type: MODEL_SET_UNIT_COMMAND,
-          action: "add",
-          name: nome,
-          role: this._modelNewUnit?.gera ? ROLE_GENERATOR : ROLE_CONSUMER,
-        },
-        { sucesso: `${nome} adicionada.` },
-      );
-      if (ok) {
-        this._modelNewUnit = null;
-        this._renderSettingsUpdate();
-      }
-    }
-
-    async _removeUnit(unitId) {
-      await this._applyModelChange(
-        { type: MODEL_SET_UNIT_COMMAND, action: "remove", unit_id: unitId },
-        { sucesso: "Unidade removida." },
-      );
     }
 
     // O Home Assistant ja sabe autenticar um pedido seu: `fetchWithAuth` usa
@@ -7508,52 +6574,10 @@
       });
     }
 
-    // A foto vai por HTTP, nao pelo WebSocket, porque JSON deixaria uma foto
-    // de celular um terco maior. Gravada a foto, o caminho dela ainda precisa
-    // entrar no modelo — sao duas etapas, e a segunda so acontece se a
-    // primeira deu certo.
-    async _uploadUnitImage(unitId, file) {
-      if (!file) return;
-      this._modelSaveState = "saving";
-      this._modelSaveMessage = "Enviando a foto…";
-      this._renderSettingsUpdate();
-
-      let url = null;
-      try {
-        const corpo = new FormData();
-        corpo.append("unit_id", unitId);
-        corpo.append("file", file);
-        const resposta = await this._fetchWithAuth(UNIT_IMAGE_UPLOAD_URL, {
-          method: "POST",
-          body: corpo,
-        });
-        const dados = await resposta.json().catch(() => null);
-        if (!resposta.ok) {
-          // O codigo vai junto: sem ele, "nao foi possivel" nao diz se o
-          // problema e a sessao, o formato do arquivo ou o endereco.
-          throw new Error(
-            dados?.message ?? `O envio falhou (HTTP ${resposta.status}).`,
-          );
-        }
-        url = dados?.url;
-        if (!url) throw new Error("O servidor não devolveu o endereço da foto.");
-      } catch (error) {
-        this._modelSaveState = "error";
-        this._modelSaveMessage = error?.message ?? "Falha ao enviar a foto.";
-        this._renderSettingsUpdate();
-        return;
-      }
-      await this._applyModelChange(
-        { type: MODEL_SET_UNIT_COMMAND, unit_id: unitId, image: url },
-        { sucesso: "Foto atualizada." },
-      );
-    }
-
     async _loadSensors({ force = false } = {}) {
       if (!this._hass || typeof this._hass.callWS !== "function") return null;
       if (!force && (this._sensors || this._sensorsLoading)) return this._sensors;
       this._sensorsLoading = true;
-      this._sensorsError = "";
       this._renderSettingsUpdate();
       try {
         const response = await this._hass.callWS({ type: SENSORS_GET_COMMAND });
@@ -7561,9 +6585,7 @@
           throw new Error("Resposta de sensores inválida.");
         }
         this._sensors = response.data;
-        this._sensorsDraft = this._sensorsDraftFrom(response.data);
       } catch (error) {
-        this._sensorsError = error?.message ?? "Sensores indisponíveis.";
       } finally {
         this._sensorsLoading = false;
         this._renderSettingsUpdate();
@@ -7578,303 +6600,6 @@
       return (dados?.units ?? [])
         .flatMap((unidade) => unidade.metrics ?? [])
         .flatMap((metrica) => metrica.sources ?? []);
-    }
-
-    // Mesma regra do rascunho de ajustes: vazio significa "vale o declarado".
-    // O campo mostra a entidade declarada como placeholder em vez de ja vir
-    // preenchido com ela, senao nao daria para distinguir "nao mexi" de
-    // "escolhi exatamente a mesma".
-    _sensorsDraftFrom(data) {
-      const trocas = {};
-      for (const fonte of this._sensorSources(data)) {
-        trocas[fonte.declared_entity_id] = fonte.overridden
-          ? fonte.effective_entity_id : "";
-      }
-      return trocas;
-    }
-
-    _setSensorDraft(declarada, valor) {
-      if (!this._sensorsDraft) return;
-      this._sensorsDraft[declarada] = valor;
-      this._sensorsSaveState = "idle";
-      this._sensorsSaveMessage = "";
-      this._renderSettingsUpdate();
-    }
-
-    async _saveSensors() {
-      if (!this._hass || typeof this._hass.callWS !== "function") return;
-      const rascunho = this._sensorsDraft;
-      if (!rascunho) return;
-
-      // Campo vazio nao vira par: e assim que se diz "vale o que o YAML diz".
-      const trocas = {};
-      for (const [declarada, valor] of Object.entries(rascunho)) {
-        const limpo = String(valor ?? "").trim();
-        if (limpo && limpo !== declarada) trocas[declarada] = limpo;
-      }
-      const invalida = Object.values(trocas)
-        .find((entidade) => !/^[a-z][a-z0-9_]*\.[a-z0-9_]+$/.test(entidade));
-      if (invalida) {
-        this._sensorsSaveState = "error";
-        this._sensorsSaveMessage = `"${invalida}" não é uma entidade válida. `
-          + "Use o formato domínio.nome, como sensor.meu_medidor.";
-        this._renderSettingsUpdate();
-        return;
-      }
-
-      this._sensorsSaveState = "saving";
-      this._sensorsSaveMessage = "";
-      this._renderSettingsUpdate();
-      try {
-        const response = await this._hass.callWS({
-          type: SENSORS_SET_COMMAND,
-          entity_ids: Object.keys(trocas).length ? trocas : null,
-        });
-        if (!response || response.api_version !== API_VERSION || !response.data) {
-          throw new Error("Resposta de sensores inválida.");
-        }
-        this._sensors = response.data;
-        this._sensorsDraft = this._sensorsDraftFrom(response.data);
-        this._sensorsSaveState = "saved";
-        this._sensorsSaveMessage = "Sensores aplicados.";
-        // Trocar a entidade troca a fonte de toda leitura derivada dela. O que
-        // esta em cache foi calculado a partir do sensor antigo e agora esta
-        // errado — descartar e mais honesto do que misturar na tela.
-        this._invalidateDerivedCaches();
-      } catch (error) {
-        this._sensorsSaveState = "error";
-        this._sensorsSaveMessage = error?.message
-          ?? "Não foi possível gravar os sensores.";
-      }
-      this._renderSettingsUpdate();
-    }
-
-    // O rascunho parte do ajuste gravado; vazio significa "vale o declarado",
-    // e e por isso que o campo mostra o declarado como placeholder em vez de
-    // ja vir preenchido com ele.
-    _settingsDraftFrom(data) {
-      const tarifas = {};
-      for (const vigencia of Object.keys(data?.distributor_tariffs?.declared ?? {})) {
-        tarifas[vigencia] = data?.distributor_tariffs?.override?.[vigencia] ?? "";
-      }
-      for (const [vigencia, valor] of Object.entries(
-        data?.distributor_tariffs?.override ?? {},
-      )) tarifas[vigencia] = valor;
-      return {
-        boundary: data?.boundary_time?.override ?? "",
-        tarifas,
-        investimento: this._moneyFromDecimal(
-          data?.solar_investment?.override?.amount,
-        ),
-        investimentoMes: data?.solar_investment?.override?.period ?? "",
-      };
-    }
-
-    async _saveSettings() {
-      if (!this._hass || typeof this._hass.callWS !== "function") return;
-      const rascunho = this._settingsDraft;
-      if (!rascunho) return;
-      const erro = this._settingsValidation();
-      if (erro) {
-        this._settingsSaveState = "error";
-        this._settingsSaveMessage = erro;
-        this._renderSettingsUpdate();
-        return;
-      }
-      // Campo vazio vira `null`, que e o pedido explicito de voltar ao YAML.
-      const tarifas = {};
-      for (const [ano, valor] of Object.entries(rascunho.tarifas ?? {})) {
-        if (String(valor).trim()) tarifas[ano] = String(valor).trim();
-      }
-      this._settingsSaveState = "saving";
-      this._settingsSaveMessage = "";
-      this._renderSettingsUpdate();
-      try {
-        const response = await this._hass.callWS({
-          type: SETTINGS_SET_COMMAND,
-          boundary_time: rascunho.boundary.trim() || null,
-          distributor_tariffs: Object.keys(tarifas).length ? tarifas : null,
-          solar_investment: this._investmentPayload(rascunho),
-        });
-        if (!response || response.api_version !== API_VERSION || !response.data) {
-          throw new Error("Resposta de configuração inválida.");
-        }
-        this._settings = response.data;
-        this._settingsDraft = this._settingsDraftFrom(response.data);
-        this._settingsSaveState = "saved";
-        this._settingsSaveMessage = "Ajustes aplicados.";
-        // Tudo que foi calculado com a fronteira antiga precisa ser refeito.
-        // Descartar os caches e mais honesto do que deixar numeros velhos na
-        // tela ao lado de numeros novos.
-        this._invalidateDerivedCaches();
-      } catch (error) {
-        this._settingsSaveState = "error";
-        this._settingsSaveMessage = error?.message
-          ?? "Não foi possível gravar os ajustes.";
-      }
-      this._renderSettingsUpdate();
-    }
-
-    // Toda leitura derivada do ciclo nasce da hora de fronteira. Mudou a
-    // fronteira, mudou tudo — histórico, comparação, auditoria, fluxo, custo.
-    _invalidateDerivedCaches() {
-      this._historyCache.clear();
-      this._comparisonCache.clear();
-      this._comparisonErrors.clear();
-      this._auditCache.clear();
-      this._auditErrors.clear();
-      this._sceeCache.clear();
-      this._financeCache?.clear?.();
-      this._cycleCost.clear();
-      this._dailyBalance.clear();
-      this._instantStats.clear();
-      this._cycleTrend.clear();
-      this._cyclesCatalogCache?.clear?.();
-      this._energyFlowData = null;
-      this._paybackProjection = null;
-      this._refresh();
-    }
-
-    // O campo mostra dinheiro do jeito que se escreve dinheiro aqui, e o
-    // backend recebe decimal com ponto. As duas formas nunca se encontram: a
-    // conversao acontece so nas bordas, aqui.
-    _maskMoney(texto) {
-      const limpo = String(texto ?? "").replace(/\./g, "").replace(/[^\d,]/g, "");
-      const [inteiro = "", ...resto] = limpo.split(",");
-      const digitos = inteiro.replace(/^0+(?=\d)/, "");
-      const comPontos = digitos.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-      if (!resto.length) return comPontos;
-      // Uma virgula so, e no maximo dois centavos: o resto o teclado digitou
-      // sem querer.
-      return `${comPontos || "0"},${resto.join("").replace(/\D/g, "").slice(0, 2)}`;
-    }
-
-    // "25.000,50" -> "25000.50". Vazio significa "nao informado", nao zero.
-    _moneyToDecimal(texto) {
-      const limpo = String(texto ?? "").replace(/\./g, "").trim();
-      if (!limpo) return "";
-      const [inteiro = "", centavos = ""] = limpo.split(",");
-      const reais = inteiro.replace(/\D/g, "") || "0";
-      const cents = centavos.replace(/\D/g, "");
-      return cents ? `${reais}.${cents.padEnd(2, "0")}` : reais;
-    }
-
-    // "25000.50" -> "25.000,50", para o campo mostrar o que foi gravado.
-    _moneyFromDecimal(valor) {
-      const texto = String(valor ?? "").trim();
-      if (!texto) return "";
-      const [inteiro = "", centavos = ""] = texto.split(".");
-      const comCentavos = centavos ? `${inteiro},${centavos.slice(0, 2)}` : inteiro;
-      return this._maskMoney(comCentavos);
-    }
-
-    // O tracado do mes entra sozinho: digitar 202601 basta.
-    _maskMonth(texto) {
-      const digitos = String(texto ?? "").replace(/\D/g, "").slice(0, 6);
-      if (digitos.length <= 4) return digitos;
-      return `${digitos.slice(0, 4)}-${digitos.slice(4)}`;
-    }
-
-    // Valor e mes andam juntos: um investimento sem data nao se situa na
-    // linha do tempo que o payback percorre, e uma data sem valor nao soma
-    // nada. Os dois vazios sao o pedido de limpar.
-    _investmentPayload(rascunho) {
-      const valor = this._moneyToDecimal(rascunho?.investimento);
-      const mes = String(rascunho?.investimentoMes ?? "").trim();
-      if (!valor || !mes) return null;
-      return { amount: valor, period: mes };
-    }
-
-    _settingsValidation() {
-      const rascunho = this._settingsDraft;
-      if (!rascunho) return "";
-      const investimento = this._moneyToDecimal(rascunho.investimento);
-      const investimentoMes = String(rascunho.investimentoMes ?? "").trim();
-      if (investimento && !investimentoMes) {
-        return "Informe o mês em que o sistema solar foi pago.";
-      }
-      if (investimentoMes && !investimento) {
-        return "Informe quanto custou o sistema solar, ou limpe o mês.";
-      }
-      if (investimento && Number(investimento) <= 0) {
-        return "O investimento precisa ser maior que zero.";
-      }
-      if (investimentoMes && !/^\d{4}-(0[1-9]|1[0-2])$/.test(investimentoMes)) {
-        return "O mês precisa ter o ano com quatro dígitos e o mês de 01 a 12.";
-      }
-      const hora = rascunho.boundary.trim();
-      if (hora && !/^\d{2}:\d{2}$/.test(hora)) {
-        return "Horário deve usar HH:MM, com zero à esquerda (ex.: 08:00).";
-      }
-      if (hora) {
-        const [h, m] = hora.split(":").map(Number);
-        if (h > 23 || m > 59) return "Horário fora do intervalo válido.";
-      }
-      for (const [vigencia, valor] of Object.entries(rascunho.tarifas ?? {})) {
-        const texto = String(valor).trim();
-        if (!texto) continue;
-        if (!/^\d+(\.\d+)?$/.test(texto) || Number(texto) <= 0) {
-          return `Tarifa desde ${this._formatDate(vigencia)} deve ser um número`
-            + " positivo com ponto decimal.";
-        }
-      }
-      return "";
-    }
-
-    // Acrescentar vigencia e o caminho certo do reajuste: o valor antigo
-    // continua valendo para os ciclos antigos, e so os dias a partir da data
-    // nova usam a tarifa nova. Corrigir a linha existente reescreveria o
-    // passado — por isso as duas acoes sao separadas na tela.
-    _addSettingsVigencia() {
-      const nova = this._settingsNewTariff;
-      if (!nova) return;
-      const data = String(nova.data ?? "").trim();
-      const valor = String(nova.valor ?? "").trim();
-      const existentes = this._settingsTariffKeys();
-      let erro = "";
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || Number.isNaN(Date.parse(data))) {
-        erro = "Informe a data de início de vigência.";
-      } else if (existentes.includes(data)) {
-        erro = "Já existe uma vigência com essa data.";
-      } else if (!/^\d+(\.\d+)?$/.test(valor) || Number(valor) <= 0) {
-        erro = "A tarifa deve ser um número positivo com ponto decimal.";
-      }
-      if (erro) {
-        nova.erro = erro;
-        this._renderSettingsUpdate();
-        return;
-      }
-      if (!this._settingsDraft) return;
-      this._settingsDraft.tarifas[data] = valor;
-      this._settingsNewTariff = null;
-      this._settingsSaveState = "idle";
-      this._settingsSaveMessage = "";
-      this._renderSettingsUpdate();
-    }
-
-    // Vigencias que a tela conhece: as do YAML, as ajustadas e as que acabaram
-    // de ser acrescentadas no rascunho e ainda nao foram gravadas.
-    _settingsTariffKeys(dados = this._settings) {
-      return Object.keys({
-        ...(dados?.distributor_tariffs?.declared ?? {}),
-        ...(dados?.distributor_tariffs?.override ?? {}),
-        ...(this._settingsDraft?.tarifas ?? {}),
-      }).sort();
-    }
-
-    _setSettingsDraft(campo, valor, vigencia = null) {
-      if (!this._settingsDraft) return;
-      if (campo === "boundary") this._settingsDraft.boundary = valor;
-      if (campo === "tarifa" && vigencia) this._settingsDraft.tarifas[vigencia] = valor;
-      if (campo === "investimento") {
-        this._settingsDraft.investimento = this._maskMoney(valor);
-      }
-      if (campo === "investimentoMes") {
-        this._settingsDraft.investimentoMes = this._maskMonth(valor);
-      }
-      this._settingsSaveState = "idle";
-      this._settingsSaveMessage = "";
-      this._renderSettingsUpdate();
     }
 
     // O painel inteiro e refeito a cada mudanca, e isso custava a posicao da
@@ -8351,38 +7076,6 @@
       dialogo.append(corpo);
       overlay.append(dialogo);
       return overlay;
-    }
-
-    // Aplicar e restaurar valem para o rascunho inteiro, não só para o campo
-    // que está aberto: são os mesmos dois botões nos dois diálogos.
-    _renderSettingsActions(dados, voltar = null) {
-      const acoes = this._element("div", "settings-actions");
-      const validacao = this._settingsValidation();
-      const salvar = this._button("Aplicar ajustes", "settings-save", "button primary");
-      salvar.disabled = Boolean(validacao) || this._settingsSaveState === "saving";
-      acoes.append(salvar);
-      // Sem `voltar`, vale o botao de sempre: os dois outros dialogos editam
-      // valores que o modelo sempre declara.
-      const padrao = { rotulo: "Restaurar o declarado", acao: "settings-reset" };
-      const escolhido = voltar === null ? padrao : voltar;
-      if (escolhido) {
-        acoes.append(this._button(escolhido.rotulo, escolhido.acao, "button"));
-      }
-      const mensagem = validacao || this._settingsSaveMessage;
-      if (mensagem) {
-        acoes.append(this._element(
-          "p",
-          `settings-message ${validacao || this._settingsSaveState === "error" ? "error" : "ok"}`,
-          this._settingsSaveState === "saving" ? "Gravando…" : mensagem,
-        ));
-      }
-      if (dados.updated_at) {
-        acoes.append(this._element(
-          "small", "settings-stamp",
-          `Último ajuste em ${this._formatDistributionDate(dados.updated_at, "—")}`,
-        ));
-      }
-      return acoes;
     }
 
     _distributionLauncherSummary() {
@@ -8994,252 +7687,6 @@
       return caixa;
     }
 
-    _renderUnitsPanel() {
-      const painel = this._element("section", "panel settings-panel");
-      painel.append(this._settingsHead(
-        "Unidades",
-        "Unidades desta instalação",
-        "Quais unidades existem, como se chamam, quais geram energia e qual "
-        + "foto representa cada uma.",
-      ));
-
-      if (this._modelError && !this._modelConfig) {
-        painel.append(this._renderError(this._modelError));
-        return painel;
-      }
-      if (!this._modelConfig) {
-        painel.append(this._historyStatus("Carregando unidades…", "loading"));
-        return painel;
-      }
-
-      const dados = this._modelConfig;
-      const doArquivo = dados.source === "file";
-      if (doArquivo) painel.append(this._renderModelImportNotice(dados));
-
-      for (const unidade of dados.units ?? []) {
-        painel.append(this._renderUnitRow(unidade, doArquivo));
-      }
-
-      if (!doArquivo) painel.append(this._renderAddUnit());
-      if (this._modelSaveMessage) {
-        painel.append(this._element(
-          "p",
-          `settings-save-message ${this._modelSaveState}`,
-          this._modelSaveMessage,
-        ));
-      }
-      return painel;
-    }
-
-    // Enquanto o modelo vem do arquivo, editar aqui nao teria efeito: a
-    // proxima partida leria o arquivo de novo. Importar e o ato que passa a
-    // palavra para o Home Assistant, e acontece uma vez.
-    _renderModelImportNotice(dados) {
-      const aviso = this._element("div", "settings-warning");
-      aviso.append(
-        this._element("strong", "", "Este modelo vem de um arquivo."),
-        this._element("span", "", " Para editar as unidades por aqui, traga-o "
-          + "para dentro do Home Assistant. Depois disso o arquivo deixa de ser "
-          + "lido, e toda a configuração passa a ser feita nesta tela. O "
-          + "arquivo não é apagado."),
-      );
-      if (dados.model_path) {
-        const caminho = this._element("code", "settings-sensor-declared");
-        caminho.textContent = dados.model_path;
-        aviso.append(caminho);
-      }
-      const acoes = this._element("div", "settings-actions-row");
-      const importar = this._button(
-        this._modelSaveState === "saving" ? "Importando…" : "Importar o modelo",
-        "model-import",
-        "button primary",
-      );
-      importar.disabled = this._modelSaveState === "saving" || !dados.can_import;
-      acoes.append(importar);
-      aviso.append(acoes);
-      return aviso;
-    }
-
-    // A unidade e uma faixa que abre. Fechada, ela cabe numa linha e diz o
-    // essencial: foto, nome, se gera e quantos sensores tem. Aberta, mostra o
-    // resto. Uma por vez, porque a lista cresce com a instalacao.
-    _renderUnitRow(unidade, somenteLeitura) {
-      const aberta = this._modelOpenUnit === unidade.unit_id;
-      const bloco = this._element("div", `settings-unit${aberta ? " open" : ""}`);
-      bloco.append(this._renderUnitHeader(unidade, aberta));
-      if (aberta) bloco.append(this._renderUnitDetail(unidade, somenteLeitura));
-      return bloco;
-    }
-
-    _renderUnitHeader(unidade, aberta) {
-      const faixa = this._button("", "unit-toggle", "settings-unit-head");
-      faixa.dataset.unit = unidade.unit_id;
-      faixa.dataset.unitHead = unidade.unit_id;
-      // O identificador interno fica na dica, nao na tela: ele amarra fatura,
-      // rateio e historico, mas depois de renomear a unidade ele parece um
-      // nome errado para quem so veio configurar.
-      faixa.title = `Identificador interno: ${unidade.unit_id}`;
-      faixa.setAttribute("aria-expanded", aberta ? "true" : "false");
-
-      const seta = this._element("ha-icon", "settings-unit-caret");
-      seta.setAttribute("icon", aberta ? "mdi:chevron-down" : "mdi:chevron-right");
-      faixa.append(seta);
-
-      const foto = this._element("div", "settings-unit-photo small");
-      if (unidade.image) {
-        const imagem = this._element("img", "settings-unit-thumb");
-        imagem.src = unidade.image;
-        imagem.alt = "";
-        imagem.loading = "lazy";
-        foto.append(imagem);
-      } else {
-        const vazio = this._element("ha-icon", "settings-unit-thumb empty");
-        vazio.setAttribute("icon", "mdi:home-outline");
-        foto.append(vazio);
-      }
-      faixa.append(foto);
-
-      const texto = this._element("div", "settings-unit-title");
-      texto.append(this._element("span", "settings-unit-name", unidade.name));
-      // A ordem e a da pergunta que se faz olhando a lista: o que esta
-      // unidade mede, e depois o que ela e. O papel vem por ultimo porque so
-      // uma unidade o tem, e as outras nao precisam dizer que nao geram.
-      const resumo = [];
-      const quantos = Number(unidade.sensor_count ?? 0);
-      const semMedidor = unidade.measured === false;
-      if (semMedidor) resumo.push("Só pela fatura");
-      else if (!quantos) resumo.push("Sem sensor");
-      else {
-        // O que ela mede, pelo nome. "3 sensores" obriga a abrir a unidade
-        // para descobrir QUAIS — e a pergunta de quem olha a lista e
-        // exatamente essa. Com os nomes, a lista se le sem abrir nada.
-        const nomes = this._unitMeasuredNames(unidade);
-        resumo.push(nomes.length
-          ? nomes.join(", ")
-          : `${quantos} ${quantos === 1 ? "sensor" : "sensores"}`);
-      }
-      if (unidade.role === ROLE_GENERATOR) resumo.push("Gera energia");
-      texto.append(this._element("span", "settings-unit-summary", resumo.join(" · ")));
-      faixa.append(texto);
-
-      // Falta sensor so e pendencia em quem deveria ter um. Quem se acompanha
-      // pela fatura esta completo assim, e cobra-lo seria mandar consertar o
-      // que nao esta quebrado.
-      if (!quantos && !semMedidor) {
-        faixa.append(this._element("span", "tag tag-warn settings-tag", "Configurar"));
-      }
-      return faixa;
-    }
-
-    _renderUnitDetail(unidade, somenteLeitura) {
-      const corpo = this._element("div", "settings-unit-body");
-
-      const campoNome = this._element("label", "settings-field");
-      campoNome.append(this._element("span", "settings-label", "Nome"));
-      const nome = this._element("input", "history-date-input settings-input");
-      nome.type = "text";
-      nome.value = unidade.name ?? "";
-      nome.dataset.action = "unit-name";
-      nome.dataset.unit = unidade.unit_id;
-      nome.disabled = somenteLeitura;
-      nome.setAttribute("aria-label", `Nome de ${unidade.name}`);
-      campoNome.append(nome);
-      corpo.append(campoNome);
-
-      const escolhas = this._element("div", "settings-unit-flags");
-      escolhas.append(
-        this._renderUnitRoleField(unidade, somenteLeitura),
-        this._renderUnitMeasuredField(unidade, somenteLeitura),
-      );
-      corpo.append(escolhas);
-
-      if (!somenteLeitura) corpo.append(this._renderUnitMetrics(unidade));
-
-      if (!somenteLeitura) corpo.append(this._renderUnitActions(unidade));
-      return corpo;
-    }
-
-    // Duas naturezas, duas secoes. A energia acumula, entra no ciclo e vira
-    // conta; a leitura do momento nao acumula, nao entra em ciclo e nao vira
-    // nada. Na mesma lista, apontar um voltimetro parecia mexer numa conta.
-    // So uma unidade gera. Em vez de deixar marcar e recusar depois, as
-    // outras ja vem desligadas dizendo quem e a geradora — a recusa depois do
-    // clique obriga a desfazer o que nunca deveria ter sido oferecido.
-    _renderUnitRoleField(unidade, somenteLeitura) {
-      const geradora = (this._modelConfig?.units ?? [])
-        .find((item) => item.role === ROLE_GENERATOR);
-      const ehGeradora = unidade.role === ROLE_GENERATOR;
-      const ocupada = Boolean(geradora) && !ehGeradora;
-
-      let dica = "Uma unidade que gera mede geração, exportação e importação. "
-        + "O consumo dela é calculado.";
-      if (ocupada) {
-        dica = `Quem gera nesta instalação é ${geradora.name}. Só uma unidade `
-          + "pode gerar: para trocar, desmarque nela primeiro.";
-      }
-      return this._flagField({
-        label: "Gera energia",
-        action: "unit-role",
-        unitId: unidade.unit_id,
-        checked: ehGeradora,
-        disabled: somenteLeitura || ocupada,
-        blocked: ocupada,
-        hint: dica,
-      });
-    }
-
-    _renderUnitMeasuredField(unidade, somenteLeitura) {
-      const temMedidor = unidade.measured !== false;
-      return this._flagField({
-        label: "Tem medidor no HA",
-        action: "unit-measured",
-        unitId: unidade.unit_id,
-        checked: temMedidor,
-        disabled: somenteLeitura,
-        hint: temMedidor
-          ? "Desmarque se esta unidade não tem medidor no Home Assistant e é "
-            + "acompanhada só pela fatura da distribuidora."
-          : "Acompanhada só pela fatura da distribuidora. Sem medidor não há "
-            + "leitura própria para comparar, e é assim mesmo.",
-      });
-    }
-
-    // Uma caixa de marcacao com a explicacao guardada numa dica. Ela existe
-    // porque o texto embaixo de cada caixa empurrava tudo para baixo e se
-    // repetia em cinco unidades — mas some-lo de vez deixaria um campo
-    // desligado sem motivo a vista.
-    _flagField({ label, action, unitId, checked, disabled, blocked, hint }) {
-      const campo = this._element(
-        "label", `settings-flag${blocked ? " blocked" : ""}`,
-      );
-      const marca = this._element("input");
-      marca.type = "checkbox";
-      marca.checked = Boolean(checked);
-      marca.dataset.action = action;
-      marca.dataset.unit = unitId;
-      marca.disabled = Boolean(disabled);
-      campo.append(marca, this._element("span", "settings-flag-label", label));
-      if (hint) {
-        const marca_dica = this._element("ha-icon", "settings-flag-mark");
-        marca_dica.setAttribute("icon", "mdi:information-outline");
-        campo.append(marca_dica);
-        // Sem `title`: o balao branco do navegador repetia o mesmo texto por
-        // cima do nosso. Quem navega por teclado ve a dica pelo foco.
-        campo.append(this._element("span", "settings-flag-hint", hint));
-      }
-      return campo;
-    }
-
-    _renderUnitMetrics(unidade) {
-      const bloco = this._element("div", "settings-unit-metrics");
-      // Sem medidor nao ha sensor a apontar. Mostrar os campos vazios
-      // convidaria a preencher o que nao existe.
-      if (unidade.measured === false) return bloco;
-      bloco.append(this._renderEnergySection(unidade));
-      bloco.append(this._renderReadingSection(unidade));
-      return bloco;
-    }
-
     _metricSection(titulo, nota) {
       const secao = this._element("section", "settings-metric-section");
       const cabeca = this._element("div", "settings-metric-section-head");
@@ -9249,839 +7696,6 @@
       );
       secao.append(cabeca);
       return secao;
-    }
-
-    _renderEnergySection(unidade) {
-      const secao = this._metricSection(
-        "Energia medida",
-        "em kWh · é o que entra no ciclo, na fatura e nos gráficos",
-      );
-      const medidas = unidade.metrics ?? [];
-
-      if (!medidas.length) {
-        secao.append(this._element(
-          "p",
-          "settings-note",
-          "Esta unidade ainda não mede nada. Aponte um sensor para ela "
-          + "começar a aparecer nos gráficos, na auditoria e no rateio.",
-        ));
-      }
-      for (const medida of medidas) {
-        secao.append(this._renderUnitMetricRow(unidade, medida));
-      }
-
-      const derivadas = unidade.derived ?? [];
-      if (derivadas.length) {
-        const nota = this._element("div", "settings-derived");
-        nota.append(
-          this._element("span", "settings-derived-label", "Calculado a partir disso"),
-          this._element(
-            "span", "settings-derived-value",
-            derivadas.map((item) => item.label).join(" · "),
-          ),
-        );
-        secao.append(nota);
-      }
-
-      const pendente = this._modelPendingMetric;
-      if (pendente?.unit === unidade.unit_id) {
-        secao.append(this._renderUnitMetricPending(unidade, pendente.metric));
-      } else {
-        secao.append(this._renderUnitMetricAdd(unidade));
-      }
-      return secao;
-    }
-
-    _renderReadingSection(unidade) {
-      const secao = this._metricSection(
-        "Leituras do momento",
-        "tensão, corrente, potência · não acumulam nem entram em ciclo",
-      );
-      for (const leitura of unidade.readings ?? []) {
-        secao.append(this._renderUnitReadingRow(unidade, leitura));
-      }
-      if (this._modelPendingMetric?.unit !== unidade.unit_id) {
-        secao.append(this._renderUnitReadingAdd(unidade));
-      }
-      return secao;
-    }
-
-    // Uma grandeza com um medidor so e uma linha: rotulo, campo, acoes. Depois
-    // de uma troca ela vira duas linhas com vigencia, porque ai ha um
-    // historico em dois trechos e e preciso dizer qual e qual.
-    _renderUnitMetricRow(unidade, medida) {
-      const fontes = medida.sources ?? [];
-      const unica = fontes.length <= 1;
-      const bloco = this._element(
-        "div", `settings-metric-group${unica ? " single" : ""}`,
-      );
-
-      const cabeca = this._element("div", "settings-metric-row head");
-      cabeca.append(this._element("span", "settings-metric-label", medida.label));
-
-      if (unica) {
-        const campo = this._element("input", "history-date-input settings-input");
-        campo.type = "text";
-        campo.value = fontes[0]?.entity_id ?? "";
-        campo.placeholder = "sensor.meu_medidor";
-        campo.dataset.action = "unit-source-entity";
-        campo.dataset.unit = unidade.unit_id;
-        campo.dataset.metric = medida.metric;
-        campo.dataset.entity = fontes[0]?.entity_id ?? "";
-        campo.setAttribute("aria-label", `Sensor de ${medida.label}`);
-        cabeca.append(campo);
-      } else {
-        cabeca.append(this._element(
-          "span", "settings-sensor-count", `${fontes.length} fontes`,
-        ));
-      }
-
-      cabeca.append(this._renderMetricActions(unidade, medida));
-      bloco.append(cabeca);
-
-      if (!unica) {
-        for (const fonte of fontes) {
-          bloco.append(this._renderUnitMetricSource(unidade, medida, fonte));
-        }
-      }
-      const pendente = this._modelPendingSwap;
-      if (pendente?.unit === unidade.unit_id && pendente.metric === medida.metric) {
-        bloco.append(this._renderMeterSwapForm(unidade, medida));
-      }
-      return bloco;
-    }
-
-    _renderMetricActions(unidade, medida) {
-      const acoes = this._element("div", "settings-metric-actions");
-      if (medida.swappable) {
-        const trocar = this._button("Trocar medidor", "unit-meter-swap", "button");
-        trocar.dataset.unit = unidade.unit_id;
-        trocar.dataset.metric = medida.metric;
-        trocar.dataset.label = medida.label;
-        trocar.title = `Registrar a troca do medidor de ${medida.label}`;
-        acoes.append(trocar);
-      }
-      const tirar = this._button(
-        "\u2715", "unit-metric-remove", "button icon-only icon-remove",
-      );
-      tirar.dataset.unit = unidade.unit_id;
-      tirar.dataset.metric = medida.metric;
-      tirar.dataset.label = medida.label;
-      tirar.title = `Excluir a medição de ${medida.label}`;
-      tirar.setAttribute("aria-label", `Excluir a medição de ${medida.label}`);
-      acoes.append(tirar);
-      return acoes;
-    }
-
-    _renderUnitMetricSource(unidade, medida, fonte) {
-      const encerrada = fonte.active === false;
-      const linha = this._element(
-        "div", `settings-metric-row source${encerrada ? " retired" : ""}`,
-      );
-
-      const legenda = this._element("div", "settings-source-legend");
-      if (fonte.label) {
-        legenda.append(this._element("span", "settings-sensor-source", fonte.label));
-      }
-      const vigencia = this._sensorWindowLabel(fonte);
-      if (vigencia) {
-        // Sem nome de medidor, a vigencia sobe para a primeira linha: deixar
-        // a linha de cima vazia so para manter o formato seria formato pelo
-        // formato.
-        legenda.append(this._element(
-          "span",
-          `settings-sensor-window${fonte.label ? "" : " alone"}`,
-          vigencia,
-        ));
-      }
-      legenda.append(this._element(
-        "span",
-        encerrada ? "tag tag-log settings-tag" : "tag tag-ok settings-tag",
-        encerrada ? "Encerrada" : "Em uso",
-      ));
-      linha.append(legenda);
-
-      const campo = this._element("input", "history-date-input settings-input");
-      campo.type = "text";
-      campo.value = fonte.entity_id ?? "";
-      campo.placeholder = "sensor.meu_medidor";
-      campo.dataset.action = "unit-source-entity";
-      campo.dataset.unit = unidade.unit_id;
-      campo.dataset.metric = medida.metric;
-      campo.dataset.entity = fonte.entity_id ?? "";
-      campo.setAttribute("aria-label", `Sensor de ${medida.label}`);
-      linha.append(campo);
-
-      // O aviso vira dica do proprio campo: ele fala de quem o le, e repetido
-      // em cada fonte encerrada enchia a tela de texto igual.
-      campo.title = "Esta fonte cobre um per\u00edodo encerrado. Troc\u00e1-la altera "
-        + "o hist\u00f3rico daquele trecho, n\u00e3o a leitura atual.";
-      return linha;
-    }
-
-    // Trocar de medidor pede duas coisas: qual entidade passa a valer e a
-    // partir de quando. A data e do operador — errar um corte reescreve meses
-    // de leitura, e o sistema nao pode adivinha-la.
-    _renderMeterSwapForm(unidade, medida) {
-      const bloco = this._element("div", "settings-metric-row swap");
-      const rascunho = this._modelPendingSwap;
-
-      const campoEntidade = this._element("label", "settings-field");
-      campoEntidade.append(
-        this._element("span", "settings-label", "Entidade do medidor novo"),
-      );
-      const entidade = this._element("input", "history-date-input settings-input");
-      entidade.type = "text";
-      entidade.placeholder = "sensor.medidor_novo";
-      entidade.value = rascunho.entity ?? "";
-      entidade.dataset.action = "swap-entity";
-      campoEntidade.append(entidade);
-
-      const campoData = this._element("label", "settings-field");
-      campoData.append(this._element("span", "settings-label", "Trocado em"));
-      const data = this._element("input", "history-date-input settings-input");
-      data.type = "datetime-local";
-      data.value = rascunho.at ?? "";
-      data.dataset.action = "swap-at";
-      campoData.append(data);
-
-      const campoRotulo = this._element("label", "settings-field");
-      campoRotulo.append(
-        this._element("span", "settings-label", "Nome do medidor (opcional)"),
-      );
-      const rotulo = this._element("input", "history-date-input settings-input");
-      rotulo.type = "text";
-      rotulo.placeholder = "Ex.: medidor novo";
-      rotulo.value = rascunho.label ?? "";
-      rotulo.dataset.action = "swap-label";
-      campoRotulo.append(rotulo);
-
-      const acoes = this._element("div", "settings-unit-actions");
-      const confirmar = this._button(
-        this._modelSaveState === "saving" ? "Trocando…" : "Confirmar troca",
-        "unit-meter-swap-confirm",
-        "button primary",
-      );
-      confirmar.disabled = this._modelSaveState === "saving";
-      acoes.append(
-        confirmar, this._button("Cancelar", "unit-meter-swap-cancel", "button"),
-      );
-
-      const aviso = this._element("div", "settings-warning");
-      aviso.append(
-        this._element("strong", "", "A leitura anterior não é apagada."),
-        this._element("span", "", " O medidor atual passa a cobrir até a data "
-          + "informada, e o novo daí em diante. O corte é levado para a hora "
-          + "cheia, e a primeira variação do medidor novo é descartada — senão "
-          + "a diferença entre o zero dele e a primeira leitura entraria como "
-          + "consumo."),
-      );
-
-      bloco.append(campoEntidade, campoData, campoRotulo, aviso, acoes);
-      return bloco;
-    }
-
-    _renderUnitReadingRow(unidade, leitura) {
-      const linha = this._element("div", "settings-metric-row reading");
-      const rotulo = this._element("span", "settings-metric-label");
-      rotulo.textContent = leitura.label;
-      linha.append(rotulo);
-
-      const campo = this._element("input", "history-date-input settings-input");
-      campo.type = "text";
-      campo.value = leitura.entity_id ?? "";
-      campo.placeholder = "sensor.meu_medidor";
-      campo.dataset.action = "unit-metric-entity";
-      campo.dataset.unit = unidade.unit_id;
-      campo.dataset.metric = leitura.metric;
-      campo.setAttribute("aria-label", `Sensor de ${leitura.label}`);
-      linha.append(campo);
-
-      const tirar = this._button(
-        "✕", "unit-metric-remove", "button icon-only icon-remove",
-      );
-      tirar.dataset.unit = unidade.unit_id;
-      tirar.dataset.metric = leitura.metric;
-      tirar.dataset.label = leitura.label;
-      tirar.title = `Excluir a leitura de ${leitura.label}`;
-      tirar.setAttribute("aria-label", `Excluir a leitura de ${leitura.label}`);
-      linha.append(tirar);
-      return linha;
-    }
-
-    _renderUnitReadingAdd(unidade) {
-      const disponiveis = (this._modelConfig?.available_readings ?? []).filter(
-        (item) => !(unidade.readings ?? []).some((r) => r.metric === item.metric),
-      );
-      if (!disponiveis.length) return this._element("span", "");
-
-      const linha = this._element("div", "settings-metric-row add");
-      const escolha = this._element("select", "settings-input settings-metric-pick");
-      escolha.dataset.action = "unit-metric-new";
-      escolha.dataset.unit = unidade.unit_id;
-      const vazio = this._element("option", "", "Adicionar leitura instantânea…");
-      vazio.value = "";
-      escolha.append(vazio);
-      for (const item of disponiveis) {
-        const opcao = this._element("option", "", `${item.label} (${item.unit})`);
-        opcao.value = item.metric;
-        escolha.append(opcao);
-      }
-      linha.append(escolha);
-      return linha;
-    }
-
-    _renderUnitMetricPending(unidade, metric) {
-      const catalogo = [
-        ...(unidade.available_metrics ?? []),
-        ...(this._modelConfig?.available_metrics ?? []),
-        ...(this._modelConfig?.available_readings ?? []),
-      ];
-      const rotulo = catalogo.find((item) => item.metric === metric)?.label
-        ?? metric;
-      const linha = this._element("div", "settings-metric-row pending");
-      linha.append(this._element("span", "settings-metric-label", rotulo));
-
-      const campo = this._element("input", "history-date-input settings-input");
-      campo.type = "text";
-      campo.placeholder = "sensor.meu_medidor";
-      campo.dataset.action = "unit-metric-entity";
-      campo.dataset.unit = unidade.unit_id;
-      campo.dataset.metric = metric;
-      campo.setAttribute("aria-label", `Sensor de ${rotulo}`);
-      linha.append(campo);
-
-      const cancelar = this._button(
-        "✕", "unit-metric-cancel", "button icon-only",
-      );
-      cancelar.title = "Cancelar";
-      cancelar.setAttribute("aria-label", "Cancelar");
-      linha.append(cancelar);
-      return linha;
-    }
-
-    // As opcoes vem da propria unidade: quem consome mede consumo, quem gera
-    // mede os tres fluxos da fronteira. Com uma opcao so, escolher numa lista
-    // de um item nao e escolha — vira botao.
-    _renderUnitMetricAdd(unidade) {
-      const disponiveis = unidade.available_metrics ?? [];
-      if (!disponiveis.length) return this._element("span", "");
-
-      const linha = this._element("div", "settings-metric-row add");
-      if (disponiveis.length === 1) {
-        const unica = disponiveis[0];
-        const botao = this._button(
-          `Adicionar ${unica.label.toLowerCase()}`, "unit-metric-new-one", "button",
-        );
-        botao.dataset.unit = unidade.unit_id;
-        botao.dataset.metric = unica.metric;
-        linha.append(botao);
-        return linha;
-      }
-
-      const escolha = this._element("select", "settings-input settings-metric-pick");
-      escolha.dataset.action = "unit-metric-new";
-      escolha.dataset.unit = unidade.unit_id;
-      const vazio = this._element("option", "", "Adicionar medição…");
-      vazio.value = "";
-      escolha.append(vazio);
-      for (const item of disponiveis) {
-        const opcao = this._element("option", "", item.label);
-        opcao.value = item.metric;
-        escolha.append(opcao);
-      }
-      linha.append(escolha);
-      return linha;
-    }
-
-    _renderUnitActions(unidade) {
-      const acoes = this._element("div", "settings-unit-actions");
-
-      // A cor identifica a unidade onde varias aparecem juntas — no payback e
-      // na rosca do rateio. Vem preenchida com a que esta valendo, seja a
-      // escolhida ou a derivada do identificador.
-      const cor = this._element("label", "settings-unit-color");
-      cor.title = "Cor desta unidade nos gráficos";
-      const seletor = this._element("input", "settings-unit-color-input");
-      seletor.type = "color";
-      seletor.value = unidade.color ?? this._unitColor(unidade.unit_id);
-      seletor.dataset.action = "unit-color";
-      seletor.dataset.unit = unidade.unit_id;
-      seletor.setAttribute("aria-label", `Cor de ${unidade.name}`);
-      cor.append(seletor, this._element("span", "", "Cor"));
-      acoes.append(cor);
-      if (unidade.color) {
-        const limpar = this._button("Cor padrão", "unit-color-clear", "button");
-        limpar.dataset.unit = unidade.unit_id;
-        acoes.append(limpar);
-      }
-
-      // <input type=file> nao se estiliza; o rotulo e o botao visivel, e o
-      // campo fica escondido atras dele.
-      const escolher = this._element("label", "button settings-unit-file");
-      escolher.append(this._element(
-        "span", "", unidade.image ? "Trocar foto" : "Escolher foto",
-      ));
-      const arquivo = this._element("input", "settings-unit-file-input");
-      arquivo.type = "file";
-      arquivo.accept = "image/png,image/jpeg,image/webp,image/gif";
-      arquivo.dataset.action = "unit-image";
-      arquivo.dataset.unit = unidade.unit_id;
-      escolher.append(arquivo);
-      acoes.append(escolher);
-
-      if (unidade.image) {
-        const limpar = this._button("Remover foto", "unit-image-clear", "button");
-        limpar.dataset.unit = unidade.unit_id;
-        acoes.append(limpar);
-      }
-      const remover = this._button("Excluir unidade", "unit-remove", "button danger");
-      remover.dataset.unit = unidade.unit_id;
-      remover.dataset.name = unidade.name ?? unidade.unit_id;
-      acoes.append(remover);
-      return acoes;
-    }
-
-    _renderAddUnit() {
-      if (!this._modelNewUnit) {
-        const acoes = this._element("div", "settings-actions-row");
-        acoes.append(this._button("Adicionar unidade", "unit-add-open", "button"));
-        return acoes;
-      }
-      const bloco = this._element("div", "settings-unit new");
-      const corpo = this._element("div", "settings-unit-body");
-
-      const campo = this._element("label", "settings-field");
-      campo.append(this._element("span", "settings-label", "Nome da unidade"));
-      const nome = this._element("input", "history-date-input settings-input");
-      nome.type = "text";
-      nome.value = this._modelNewUnit.nome ?? "";
-      nome.placeholder = "Casa, Loja, Sítio…";
-      nome.dataset.action = "unit-new-name";
-      campo.append(nome);
-      corpo.append(campo);
-
-      // Se ja ha geradora, a caixa nasce desligada: oferecer para depois
-      // recusar obriga a desfazer o que nunca deveria ter sido oferecido.
-      const geradora = (this._modelConfig?.units ?? [])
-        .find((item) => item.role === ROLE_GENERATOR);
-      const geracao = this._element(
-        "label", `settings-flag${geradora ? " blocked" : ""}`,
-      );
-      const marca = this._element("input");
-      marca.type = "checkbox";
-      marca.checked = Boolean(this._modelNewUnit.gera) && !geradora;
-      marca.dataset.action = "unit-new-role";
-      marca.disabled = Boolean(geradora);
-      geracao.append(marca, this._element("span", "settings-flag-label", "Gera energia"));
-      geracao.append(this._element(
-        "span",
-        "settings-flag-hint",
-        geradora
-          ? `Quem gera nesta instalação é ${geradora.name}. Só uma unidade pode gerar.`
-          : "Uma unidade que gera mede geração, exportação e importação.",
-      ));
-      corpo.append(geracao);
-      bloco.append(corpo);
-
-      const acoes = this._element("div", "settings-unit-actions");
-      const criar = this._button(
-        this._modelSaveState === "saving" ? "Criando…" : "Criar",
-        "unit-add-confirm",
-        "button primary",
-      );
-      criar.disabled = this._modelSaveState === "saving";
-      acoes.append(criar, this._button("Cancelar", "unit-add-cancel", "button"));
-      bloco.append(acoes);
-      return bloco;
-    }
-
-    _renderSensorsPanel() {
-      const painel = this._element("section", "panel settings-panel");
-      painel.append(this._settingsHead(
-        "Unidades",
-        "Sensores de cada unidade",
-        "O modelo declara de qual entidade vem cada medição. Se uma delas não "
-        + "existe nesta instalação, aponte aqui a entidade equivalente — o "
-        + "arquivo do modelo continua intacto.",
-      ));
-
-      if (this._sensorsError && !this._sensors) {
-        painel.append(this._renderError(this._sensorsError));
-        return painel;
-      }
-      if (!this._sensors) {
-        painel.append(this._historyStatus("Carregando sensores…", "loading"));
-        return painel;
-      }
-
-      // Uma fonte encerrada apontando para o vazio e o esperado: o medidor
-      // antigo foi removido, e e por isso que existe uma fonte nova. Cobrar a
-      // entidade dela mandaria consertar o que nao esta quebrado.
-      const ausentes = this._sensorSources()
-        .filter((f) => f.presence === "missing" && f.active !== false).length;
-      if (ausentes > 0) {
-        const aviso = this._element("div", "settings-warning");
-        aviso.append(
-          this._element("strong", "", `${ausentes} ${ausentes > 1
-            ? "entidades em uso não existem" : "entidade em uso não existe"}`
-            + " nesta instalação."),
-          this._element("span", "", " Enquanto isso, as medições que dependem "
-            + "dela ficam sem fonte — indisponíveis, nunca zero."),
-        );
-        painel.append(aviso);
-      }
-
-      for (const unidade of this._sensors.units ?? []) {
-        painel.append(this._renderSensorsUnit(unidade));
-      }
-
-      const sobras = this._sensors.unused_overrides ?? [];
-      if (sobras.length) {
-        // Nao e erro: o modelo pode ter mudado depois da troca. Mas e a
-        // diferenca entre "o sensor esta trocado" e "a troca nao esta valendo".
-        const nota = this._element("p", "settings-note");
-        nota.textContent = "Trocas gravadas que o modelo não declara mais, e "
-          + `por isso não estão valendo: ${sobras.join(", ")}.`;
-        painel.append(nota);
-      }
-
-      painel.append(this._renderSensorsActions());
-      return painel;
-    }
-
-    _renderSensorsUnit(unidade) {
-      const bloco = this._element("div", "settings-sensor-unit");
-      bloco.append(this._element("h4", "settings-sensor-unit-name", unidade.name));
-
-      const metricas = unidade.metrics ?? [];
-      if (!metricas.length) {
-        // Dizer que nao ha e diferente de omitir a unidade: ha unidade sem
-        // medicao no Home Assistant, e isso e um fato da instalacao, nao
-        // uma falha de configuracao.
-        bloco.append(this._element(
-          "p", "settings-note", "Sem medição no Home Assistant.",
-        ));
-        return bloco;
-      }
-      for (const metrica of metricas) bloco.append(this._renderSensorMetric(metrica));
-      return bloco;
-    }
-
-    // A grandeza e o titulo, e as fontes sao as linhas embaixo dela. Uma troca
-    // de medidor deixa duas: juntas elas se leem como um historico; separadas,
-    // seriam duas linhas "Geracao" identicas, e trocar a errada reescreveria o
-    // passado sem nada aparecer na tela.
-    _renderSensorMetric(metrica) {
-      const bloco = this._element("div", "settings-sensor-metric");
-      const titulo = this._element("div", "settings-sensor-metric-head");
-      titulo.append(this._element("span", "settings-sensor-usage", metrica.label));
-      const fontes = metrica.sources ?? [];
-      if (fontes.length > 1) {
-        titulo.append(this._element(
-          "span", "settings-sensor-count", `${fontes.length} fontes`,
-        ));
-      }
-      bloco.append(titulo);
-      for (const fonte of fontes) bloco.append(this._renderSensorSource(fonte));
-      return bloco;
-    }
-
-    _renderSensorSource(fonte) {
-      const ativa = fonte.active === true;
-      const encerrada = fonte.active === false;
-      const linha = this._element(
-        "div",
-        `settings-sensor-row${ativa ? " active" : ""}${encerrada ? " retired" : ""}`,
-      );
-
-      const cabeca = this._element("div", "settings-sensor-head");
-      if (fonte.source_label) {
-        cabeca.append(this._element("span", "settings-sensor-source", fonte.source_label));
-      }
-      const vigencia = this._sensorWindowLabel(fonte);
-      if (vigencia) {
-        cabeca.append(this._element("span", "settings-sensor-window", vigencia));
-      }
-      // O selo de presenca fala da entidade; o de vigencia, do periodo. So o
-      // segundo diz se mexer nesta linha altera o que se le hoje.
-      if (ativa) cabeca.append(this._element("span", "tag tag-ok settings-tag", "Em uso"));
-      if (encerrada) {
-        cabeca.append(this._element("span", "tag tag-log settings-tag", "Encerrada"));
-      }
-      const [classe, texto] = SENSOR_PRESENCE[fonte.presence]
-        ?? SENSOR_PRESENCE.unknown;
-      cabeca.append(this._element("span", `${classe} settings-tag`, texto));
-      linha.append(cabeca);
-
-      const declarada = this._element("code", "settings-sensor-declared");
-      declarada.textContent = fonte.declared_entity_id;
-      linha.append(declarada);
-
-      const campo = this._element("label", "settings-field");
-      campo.append(this._element("span", "settings-label", "Entidade nesta casa"));
-      const input = this._element("input", "history-date-input settings-input");
-      input.type = "text";
-      input.placeholder = fonte.declared_entity_id;
-      input.value = this._sensorsDraft?.[fonte.declared_entity_id] ?? "";
-      input.dataset.action = "sensor-entity";
-      input.dataset.declared = fonte.declared_entity_id;
-      input.setAttribute("aria-label", `Entidade para ${fonte.declared_entity_id}`);
-      campo.append(input);
-      linha.append(campo);
-
-      if (encerrada) {
-        // O aviso e da linha, nao da tela: trocar aqui nao muda o sensor de
-        // hoje, muda de onde o passado e lido. Quem nao souber disso troca a
-        // fonte errada e nao recebe erro nenhum.
-        linha.append(this._element(
-          "p",
-          "settings-note",
-          "Esta fonte cobre um período encerrado. Trocá-la altera o histórico "
-          + "daquele trecho, não a leitura atual.",
-        ));
-      }
-      return linha;
-    }
-
-    // "até" e "desde" em vez das duas datas: cada fonte tem so um limite, e o
-    // outro lado e o comeco ou o fim do tempo.
-    _sensorWindowLabel(fonte) {
-      const desde = fonte.from ? this._formatDistributionDate(fonte.from, "") : "";
-      const ate = fonte.until ? this._formatDistributionDate(fonte.until, "") : "";
-      if (desde && ate) return `de ${desde} até ${ate}`;
-      if (desde) return `desde ${desde}`;
-      if (ate) return `até ${ate}`;
-      return "";
-    }
-
-    _renderSensorsActions() {
-      const acoes = this._element("div", "settings-actions-row");
-      const gravar = this._button(
-        this._sensorsSaveState === "saving" ? "Aplicando…" : "Aplicar",
-        "sensors-save",
-        "button primary",
-      );
-      gravar.disabled = this._sensorsSaveState === "saving";
-      acoes.append(gravar);
-      acoes.append(this._button("Restaurar o modelo", "sensors-reset", "button"));
-      if (this._sensorsSaveMessage) {
-        acoes.append(this._element(
-          "span",
-          `settings-save-message ${this._sensorsSaveState}`,
-          this._sensorsSaveMessage,
-        ));
-      }
-      return acoes;
-    }
-
-    _renderSettingsInvestment(dados) {
-      const painel = this._element("section", "panel settings-panel");
-      painel.append(this._settingsHead(
-        "Investimento no sistema solar",
-        "Quanto custou",
-        "O valor que o sistema solar tem a devolver. É o total investido que o "
-        + "payback persegue, e nada mais depende dele.",
-      ));
-
-      const linha = this._element("div", "settings-field-row");
-      const campoValor = this._element("label", "settings-field");
-      campoValor.append(this._element("span", "settings-label", "Valor (R$)"));
-      const valor = this._element("input", "history-date-input settings-input");
-      valor.type = "text";
-      valor.inputMode = "decimal";
-      valor.placeholder = this._moneyFromDecimal(
-        dados.solar_investment?.declared?.amount,
-      ) || "0";
-      valor.value = this._settingsDraft?.investimento ?? "";
-      valor.dataset.action = "settings-investment";
-      valor.dataset.field = "investimento";
-      campoValor.append(valor);
-      linha.append(campoValor);
-
-      const campoMes = this._element("label", "settings-field");
-      campoMes.append(this._element("span", "settings-label", "Mês (AAAA-MM)"));
-      const mes = this._element("input", "history-date-input settings-input");
-      mes.type = "text";
-      mes.inputMode = "numeric";
-      mes.placeholder = dados.solar_investment?.declared?.period ?? "2026-01";
-      mes.value = this._settingsDraft?.investimentoMes ?? "";
-      mes.dataset.action = "settings-investment";
-      mes.dataset.field = "investimentoMes";
-      campoMes.append(mes);
-      linha.append(campoMes);
-
-      const vigente = dados.solar_investment?.effective;
-      linha.append(this._settingsValueBox(
-        "Valendo",
-        vigente?.amount
-          ? `${this._formatCurrency(Number(vigente.amount))} · ${vigente.period}`
-          : "não informado",
-        true,
-      ));
-      painel.append(linha);
-
-      const nota = this._element("div", "settings-note");
-      nota.textContent = "Digite só os números: o valor se separa sozinho "
-        + "(25000 vira 25.000) e o mês também (202601 vira 2026-01). Para "
-        + "centavos, use vírgula. O mês basta, porque o sistema raciocina por "
-        + "ciclo.";
-      painel.append(nota);
-      return painel;
-    }
-
-    _renderSettingsBoundary(dados) {
-      const painel = this._element("section", "panel settings-panel");
-      painel.append(this._settingsHead(
-        "Fronteira do ciclo",
-        "Horário da leitura",
-        "A fatura publica a data da leitura, não a hora. Este é o horário que o "
-        + "sistema assume para toda leitura, e é ele que define onde cada ciclo "
-        + "começa e termina.",
-      ));
-
-      const linha = this._element("div", "settings-field-row");
-      const campo = this._element("label", "settings-field");
-      campo.append(this._element("span", "settings-label", "Horário (HH:MM)"));
-      const input = this._element("input", "history-date-input settings-input");
-      input.type = "text";
-      input.inputMode = "numeric";
-      input.placeholder = dados.boundary_time?.declared ?? "10:00";
-      input.value = this._settingsDraft?.boundary ?? "";
-      input.dataset.action = "settings-boundary";
-      campo.append(input);
-      linha.append(campo);
-      linha.append(this._settingsValueBox(
-        "Declarado no YAML", dados.boundary_time?.declared ?? "—",
-      ));
-      linha.append(this._settingsValueBox(
-        "Em vigor", dados.boundary_time?.effective ?? "—", true,
-      ));
-      painel.append(linha);
-
-      // O aviso e permanente, nao condicional: nao existe mudanca de fronteira
-      // que nao recalcule o passado, porque a hora nao esta gravada em ciclo
-      // nenhum — e uma hipotese unica aplicada a todas as datas de leitura.
-      const aviso = this._element("div", "settings-warning");
-      aviso.append(
-        this._element("strong", "", "Muda o passado, não só o futuro."),
-        this._element(
-          "span",
-          "",
-          " Todo ciclo é recalculado com o horário novo: histórico, comparação, "
-          + "auditoria, SCEE, fluxo e previsões. Depois de alterar, confira a aba "
-          + "Auditoria — se as divergências contra a fatura aumentarem, o "
-          + "horário novo está mais longe da leitura real do que o anterior.",
-        ),
-      );
-      painel.append(aviso);
-      return painel;
-    }
-
-    _renderSettingsTariffs(dados) {
-      const painel = this._element("section", "panel settings-panel");
-      painel.append(this._settingsHead(
-        "Tarifa da distribuidora",
-        "Tarifa homologada, sem tributos",
-        "Base do preço da energia, por vigência da resolução da ANEEL. A tarifa "
-        + "impressa na fatura continua vencendo esta quando existe — o valor aqui "
-        + "só é usado quando a fatura do ciclo não publica tarifa própria. O ciclo "
-        + "que atravessa um reajuste recebe a média por dias entre as duas.",
-      ));
-      const vigencias = this._settingsTariffKeys(dados);
-      if (vigencias.length === 0) {
-        painel.append(this._historyStatus(
-          "Nenhuma tarifa declarada no modelo financeiro.", "compact",
-        ));
-        painel.append(this._renderSettingsVigenciaForm());
-        return painel;
-      }
-      // A que vale hoje e a ultima vigencia ja iniciada.
-      const hoje = new Date().toISOString().slice(0, 10);
-      const emVigor = vigencias.filter((item) => item <= hoje).pop() ?? null;
-      for (const vigencia of vigencias) {
-        const linha = this._element("div", "settings-field-row");
-        const campo = this._element("label", "settings-field");
-        const rotulo = this._element("span", "settings-label");
-        rotulo.append(document.createTextNode(
-          `Vigência desde ${this._formatDate(vigencia)}`,
-        ));
-        if (vigencia === emVigor) {
-          rotulo.append(this._element("span", "tag tag-ok settings-tag", "em vigor"));
-        } else if (vigencia > hoje) {
-          rotulo.append(this._element("span", "tag tag-log settings-tag", "futura"));
-        }
-        campo.append(rotulo);
-        const fonte = dados.distributor_tariffs?.sources?.[vigencia];
-        if (fonte) campo.append(this._element("span", "settings-source", fonte));
-        const input = this._element("input", "history-date-input settings-input");
-        input.type = "text";
-        input.inputMode = "decimal";
-        input.placeholder = dados.distributor_tariffs?.declared?.[vigencia] ?? "0.000000";
-        input.value = this._settingsDraft?.tarifas?.[vigencia] ?? "";
-        input.dataset.action = "settings-tariff";
-        input.dataset.vigencia = vigencia;
-        campo.append(input);
-        linha.append(campo);
-        linha.append(this._settingsValueBox(
-          "Declarado no YAML", dados.distributor_tariffs?.declared?.[vigencia] ?? "—",
-        ));
-        linha.append(this._settingsValueBox(
-          "Valendo", dados.distributor_tariffs?.effective?.[vigencia] ?? "—", true,
-        ));
-        painel.append(linha);
-      }
-      painel.append(this._renderSettingsVigenciaForm());
-      return painel;
-    }
-
-    // Duas acoes com efeitos diferentes, por isso separadas: o campo de cada
-    // linha corrige aquela vigencia (e recalcula todo ciclo que dependia dela);
-    // este formulario acrescenta uma nova, sem tocar no passado.
-    _renderSettingsVigenciaForm() {
-      const caixa = this._element("div", "settings-add-vigencia");
-      const nova = this._settingsNewTariff;
-      if (!nova) {
-        caixa.append(
-          this._button("Adicionar vigência", "settings-vigencia-new", "button"),
-          this._element(
-            "span", "settings-note",
-            "Use ao chegar um reajuste: a tarifa nova passa a valer só a partir"
-            + " da data informada, e os ciclos anteriores continuam como estão.",
-          ),
-        );
-        return caixa;
-      }
-      const data = this._element("label", "settings-field");
-      data.append(this._element("span", "settings-label", "Início de vigência"));
-      const dataInput = this._element("input", "history-date-input settings-input");
-      dataInput.type = "date";
-      dataInput.value = nova.data ?? "";
-      dataInput.dataset.action = "settings-vigencia-date";
-      data.append(dataInput);
-
-      const valor = this._element("label", "settings-field");
-      valor.append(this._element(
-        "span", "settings-label", "Tarifa homologada, sem tributos",
-      ));
-      const valorInput = this._element("input", "history-date-input settings-input");
-      valorInput.type = "text";
-      valorInput.inputMode = "decimal";
-      valorInput.placeholder = "0.000000";
-      valorInput.value = nova.valor ?? "";
-      valorInput.dataset.action = "settings-vigencia-value";
-      valor.append(valorInput);
-
-      caixa.append(
-        data,
-        valor,
-        this._button("Incluir", "settings-vigencia-add", "button primary"),
-        this._button("Cancelar", "settings-vigencia-cancel", "button"),
-      );
-      if (nova.erro) {
-        caixa.append(this._element("p", "settings-message error", nova.erro));
-      }
-      return caixa;
     }
 
     // Titulo e explicacao lado a lado. Empilhados, a explicacao quebrava em
@@ -10095,39 +7709,6 @@
       );
       head.append(copy, this._element("p", "settings-note", nota));
       return head;
-    }
-
-    _settingsValueBox(rotulo, valor, destaque = false) {
-      const caixa = this._element("div", `settings-value ${destaque ? "current" : ""}`);
-      caixa.append(
-        this._element("span", "settings-label", rotulo),
-        this._element("strong", "num", String(valor)),
-      );
-      return caixa;
-    }
-
-    // As secoes que ficavam abaixo dos dois graficos em Unidades & analise.
-    // Elas continuam lendo a unidade selecionada la — o seletor de unidade
-    // permanece naquela aba, e e ele que manda aqui tambem.
-    _renderExclusionPage(data) {
-      const content = this._element("div", "content unit-page");
-      const snapshot = data.snapshot ?? {};
-      const blocks = this._element("div", "blocks");
-      blocks.append(
-        this._renderCycle(data.cycle_energy),
-        this._renderBill(snapshot.latest_bill),
-        this._renderPrediction(data.prediction),
-        this._renderFinance(),
-      );
-      const selfConsumptionSection = this._renderSelfConsumption();
-      if (selfConsumptionSection) blocks.append(selfConsumptionSection);
-      blocks.append(
-        this._renderDistribution(),
-        this._renderScee(),
-      );
-      blocks.append(this._renderAuditQuality(data.quality_evidence));
-      content.append(blocks);
-      return content;
     }
 
     _renderAlertsPage() {
@@ -11800,26 +9381,20 @@
       const dialog = this._element("div", "audit-modal audit-modal-wide");
       dialog.setAttribute("role", "dialog");
       dialog.setAttribute("aria-modal", "true");
-      dialog.setAttribute("aria-label", "Rateio configurado");
+      dialog.setAttribute("aria-label", "Histórico de vigências do rateio");
 
       const head = this._element("div", "audit-modal-head");
       head.append(
-        this._element("div", "audit-modal-title", vista === "historico"
-          ? "Histórico de vigências do rateio"
-          : "Rateio configurado"),
+        this._element("div", "audit-modal-title", "Histórico de vigências do rateio"),
         this._button("✕", "distribution-modal-close", "audit-modal-close"),
       );
       dialog.append(head);
 
       const body = this._element("div", "audit-modal-body");
-      if (vista === "historico") {
-        const historico = this._distributionData?.history;
-        body.append(historico
-          ? this._renderDistributionHistory(historico)
-          : this._historyStatus("Nenhuma vigência registrada.", "compact"));
-      } else {
-        body.append(this._renderDistribution({ modal: true, includeHistory: false }));
-      }
+      const historico = this._distributionData?.history;
+      body.append(historico
+        ? this._renderDistributionHistory(historico)
+        : this._historyStatus("Nenhuma vigência registrada.", "compact"));
       dialog.append(body);
       overlay.append(dialog);
       return overlay;
@@ -13231,44 +10806,6 @@
       section.append(this._historyStatus(this._historyEmptyMessage(mode)));
     }
 
-    _renderCycleUnavailable(cycle) {
-      const state = this._element("div", "history-state history-cycle-unavailable");
-      state.setAttribute("aria-live", "polite");
-      state.append(this._element("strong", "", `CICLO — ${cycle.billing_reference ?? "—"}`));
-      const official = cycle.official_consumption ?? {};
-      const numericValue = Number(official.value);
-      const hasOfficial = official.classification === "official"
-        && official.value !== null
-        && official.value !== undefined
-        && Number.isFinite(numericValue);
-      const officialValue = hasOfficial
-        ? `${new Intl.NumberFormat("pt-BR", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        }).format(numericValue)} ${official.unit ?? "kWh"}`
-        : "Consumo oficial indisponível";
-      const summary = this._element("div", "history-cycle-official");
-      summary.append(
-        this._element("span", "", "Consumo oficial da fatura"),
-        this._element("strong", "", officialValue),
-      );
-      state.append(summary);
-      if (hasOfficial) {
-        state.append(
-          this._element("small", "", `Fonte: ${this._distributorLabel()}`),
-          this._element("small", "", "Classificação: Oficial"),
-        );
-      }
-      state.append(this._element(
-        "p",
-        "",
-        cycle.capability === "billing_only"
-          ? "Curva diária não disponível para esta unidade."
-          : "Histórico operacional indisponível para este ciclo.",
-      ));
-      return state;
-    }
-
     _renderHistoryError(message, compact = false) {
       const error = this._element(
         "div",
@@ -14086,79 +11623,6 @@
       return faixa;
     }
 
-    _renderCycle(cycleEnergy) {
-      const section = this._element("section", "panel block");
-      section.append(this._element("h3", "section-title", "Ciclo atual"));
-      const cycle = cycleEnergy?.cycle;
-      if (!cycle) {
-        section.append(this._element("p", "empty", "Ciclo indisponível"));
-        return section;
-      }
-
-      section.append(
-        this._field(
-          "Estado",
-          this._translateCycleStatus(cycle.status ?? "—"),
-        ),
-        this._field("Início", this._formatDate(cycle.current_start)),
-        this._field("Próxima leitura", this._formatDate(cycle.expected_next_reading)),
-      );
-      const metrics = cycleEnergy?.current_energy?.metrics;
-      if (!Array.isArray(metrics) || metrics.length === 0) {
-        section.append(this._element("p", "empty", "Energia do ciclo indisponível"));
-        return section;
-      }
-
-      const list = this._element("div", "compact-list");
-      for (const metric of metrics) {
-        const row = this._element("div", "compact-row");
-        const label = this._element("span", "");
-        label.append(
-          this._element("strong", "", metric.label ?? "Métrica"),
-          this._element(
-            "small",
-            "",
-            this._translateClassification(metric.classification ?? ""),
-          ),
-        );
-        row.append(
-          label,
-          this._element(
-            "b",
-            "",
-            this._valueWithUnit(metric.value, metric.unit),
-          ),
-        );
-        list.append(row);
-      }
-      section.append(list);
-      return section;
-    }
-
-    _renderBill(bill) {
-      const section = this._element("section", "panel block");
-      section.append(this._element("h3", "section-title", "Última fatura"));
-      if (!bill) {
-        section.append(this._element("p", "empty", "Fatura indisponível"));
-        return section;
-      }
-      section.append(
-        this._field("Referência", bill.reference ?? "—"),
-        this._field(
-          "Consumo",
-          this._valueWithUnit(bill.consumption_kwh, "kWh"),
-        ),
-        this._field(
-          "Valor total",
-          this._formatCurrency(bill.total_amount, bill.currency),
-        ),
-        this._field("Leitura atual", this._formatDate(bill.reading_current)),
-        this._field("Próxima leitura", this._formatDate(bill.next_reading)),
-        this._field("Extração", bill.extraction_status ?? "—"),
-      );
-      return section;
-    }
-
     // So para a unidade sem medicao: o que se espera da proxima conta,
     // repetindo o ritmo da ultima fatura. Nao e projecao — nao ha sensor para
     // projetar —, e por isso tem nome proprio, selo "Estimado" e a conta a
@@ -14225,32 +11689,6 @@
       if (novo) atual.replaceWith(novo);
     }
 
-    _renderPrediction(prediction) {
-      const section = this._element("section", "panel block");
-      section.append(this._element("h3", "section-title", "Previsão"));
-      if (!prediction) {
-        section.append(this._element(
-          "p",
-          "empty",
-          "Previsão indisponível para este ciclo",
-        ));
-        return section;
-      }
-      section.append(
-        this._field(
-          "Valor previsto",
-          this._valueWithUnit(prediction.predicted_value, prediction.unit),
-        ),
-        this._field(
-          "Classificação",
-          this._translateClassification(prediction.classification ?? "—"),
-        ),
-        this._field("Início", this._formatDate(prediction.target_start)),
-        this._field("Fim", this._formatDate(prediction.target_end)),
-      );
-      return section;
-    }
-
     _formatDistributionPercent(value) {
       if (typeof value !== "string" || !/^\d+(?:\.\d+)?$/.test(value)) {
         return "Não informado";
@@ -14303,38 +11741,6 @@
       return grid;
     }
 
-    _renderDistributionRule(rule, kind) {
-      const block = this._element("section", `distribution-rule ${kind}`);
-      const heading = kind === "scheduled"
-        ? "Próximo rateio agendado"
-        : "Regra vigente";
-      block.append(
-        this._element("h4", "distribution-rule-title", heading),
-        this._element("strong", "distribution-rule-label", this._distributionLabel(rule)),
-        this._renderDistributionShares(rule),
-      );
-      const period = this._element("div", "distribution-period");
-      period.append(
-        this._field(
-          "Início da vigência",
-          this._formatDistributionDate(
-            rule?.effective_from,
-            "Desde o início do histórico disponível",
-          ),
-        ),
-        this._field(
-          "Fim da vigência",
-          this._formatDistributionDate(rule?.effective_until, "Vigente"),
-        ),
-        this._field(
-          "Total configurado",
-          this._formatDistributionPercent(rule?.total_percent),
-        ),
-      );
-      block.append(period);
-      return block;
-    }
-
     _renderDistributionHistory(history) {
       const block = this._element("details", "distribution-history");
       block.append(this._element(
@@ -14361,255 +11767,6 @@
       }
       block.append(list);
       return block;
-    }
-
-    _renderDistributionEditor() {
-      const scheduling = this._distributionMode === "schedule";
-      const form = this._element("section", "distribution-editor");
-      form.append(this._element(
-        "h4",
-        "distribution-editor-title",
-        scheduling ? "Agendar alteração" : "Editar rateio",
-      ));
-      if (scheduling) {
-        const scheduleFields = this._element("div", "distribution-schedule-fields");
-        for (const [field, label, type] of [
-          ["date", "Data de início", "date"],
-          ["time", "Hora de início", "time"],
-          ["label", "Nome da regra (opcional)", "text"],
-        ]) {
-          const wrapper = this._element("label", "distribution-input-field");
-          wrapper.append(this._element("span", "field-label", label));
-          const input = this._element("input", "distribution-input");
-          input.type = type;
-          input.value = this._distributionDraft[field];
-          input.dataset.distributionField = field;
-          input.setAttribute("aria-label", label);
-          wrapper.append(input);
-          scheduleFields.append(wrapper);
-        }
-        form.append(scheduleFields);
-      }
-
-      const inputs = this._element("div", "distribution-input-grid");
-      for (const unit of this._units()) {
-        const wrapper = this._element("label", "distribution-input-field");
-        wrapper.append(this._element("span", "field-label", unit.label));
-        const control = this._element("span", "distribution-percent-control");
-        const input = this._element("input", "distribution-input");
-        input.type = "text";
-        input.inputMode = "decimal";
-        input.autocomplete = "off";
-        input.value = this._distributionDraft.shares[unit.id];
-        input.dataset.distributionField = unit.id;
-        input.setAttribute("aria-label", `Percentual de ${unit.label}`);
-        control.append(input, this._element("span", "distribution-percent-suffix", "%"));
-        wrapper.append(control);
-        inputs.append(wrapper);
-      }
-      form.append(inputs);
-
-      const total = this._distributionDraftTotal();
-      const valid = total === 1000000n;
-      const totalLine = this._element(
-        "div",
-        `distribution-editor-total ${valid ? "valid" : "invalid"}`,
-      );
-      totalLine.setAttribute("aria-live", "polite");
-      totalLine.append(
-        this._element("span", "", "Total"),
-        this._element("strong", "", this._formatDistributionTotal(total)),
-        this._element(
-          "small",
-          "",
-          valid ? "Total válido" : "O total deve ser exatamente 100%",
-        ),
-      );
-      form.append(totalLine);
-      if (scheduling) {
-        const effectiveFrom = this._distributionEffectiveFrom();
-        form.append(this._element(
-          "p",
-          "distribution-schedule-preview",
-          effectiveFrom
-            ? `Vigência: ${this._formatDistributionDate(effectiveFrom, "Não informado")}`
-            : "Informe uma data e hora válidas.",
-        ));
-      }
-      const actions = this._element("div", "distribution-actions");
-      actions.append(this._button("Cancelar", "distribution-close"));
-      const review = this._button(
-        scheduling ? "Revisar agendamento" : "Salvar alteração",
-        scheduling ? "distribution-review-schedule" : "distribution-review-immediate",
-        "distribution-primary-action",
-      );
-      review.disabled = scheduling
-        ? !this._distributionScheduleIsValid()
-        : !this._distributionDraftIsValid();
-      actions.append(review);
-      form.append(actions);
-      return form;
-    }
-
-    _renderDistributionConfirmation() {
-      const type = this._distributionConfirmation;
-      if (!type) return null;
-      const dialog = this._element("section", "distribution-confirmation");
-      dialog.setAttribute("role", "dialog");
-      dialog.setAttribute("aria-modal", "true");
-      if (type === "cancel") {
-        const effectiveFrom = this._distributionData?.scheduled?.effective_from;
-        dialog.append(
-          this._element("h4", "distribution-editor-title", "Cancelar agendamento"),
-          this._element(
-            "p",
-            "distribution-confirmation-copy",
-            `Cancelar a alteração de rateio agendada para ${this._formatDistributionDate(effectiveFrom, "data não informada")}?`,
-          ),
-        );
-      } else {
-        const scheduling = type === "schedule";
-        dialog.append(this._element(
-          "h4",
-          "distribution-editor-title",
-          scheduling ? "Novo rateio agendado" : "Novo rateio",
-        ));
-        if (scheduling) {
-          dialog.append(this._element(
-            "p",
-            "distribution-confirmation-copy",
-            `Vigência a partir de: ${this._formatDistributionDate(
-              this._distributionEffectiveFrom(), "Não informado",
-            )}`,
-          ));
-        }
-        dialog.append(this._renderDistributionShares({ shares: this._distributionDraft.shares }));
-        dialog.append(this._element(
-          "p",
-          "distribution-confirmation-total",
-          `Total: ${this._formatDistributionTotal(this._distributionDraftTotal())}`,
-        ));
-        if (!scheduling) {
-          dialog.append(this._element(
-            "p",
-            "distribution-confirmation-copy",
-            "A alteração passa a valer imediatamente e encerra a vigência da configuração atual.",
-          ));
-        }
-      }
-      const actions = this._element("div", "distribution-actions");
-      actions.append(this._button(
-        type === "cancel" ? "Manter agendamento" : "Cancelar",
-        "distribution-dismiss-confirmation",
-      ));
-      const confirm = this._button(
-        type === "cancel" ? "Cancelar agendamento"
-          : type === "schedule" ? "Confirmar agendamento" : "Confirmar alteração",
-        `distribution-confirm-${type}`,
-        "distribution-primary-action",
-      );
-      confirm.disabled = ["saving", "scheduling", "cancelling"]
-        .includes(this._distributionMutationState);
-      actions.append(confirm);
-      dialog.append(actions);
-      return dialog;
-    }
-
-    // `modal` tira a moldura de painel e o titulo, que o cabecalho do popup ja
-    // dá; `includeHistory` separa as duas vistas sem duplicar o corpo do
-    // editor, que e a parte com estado.
-    _renderDistribution({ modal = false, includeHistory = true } = {}) {
-      const section = this._element(
-        "section",
-        modal ? "distribution-section distribution-in-modal" : "panel block distribution-section",
-      );
-      section.dataset.distributionSection = "";
-      if (!modal) {
-        section.append(
-          this._element("h3", "section-title", "Rateio configurado"),
-          this._element(
-            "p",
-            "distribution-context",
-            "Configuração temporal do rateio. O percentual oficial observado na fatura é exibido separadamente em SCEE e créditos.",
-          ),
-        );
-      }
-      if (this._distributionLoading && !this._distributionData) {
-        section.append(this._historyStatus("Carregando rateio configurado…", "loading compact"));
-        return section;
-      }
-      if (this._distributionError && !this._distributionData) {
-        section.append(this._element("div", "distribution-error", this._distributionError));
-        return section;
-      }
-      const data = this._distributionData;
-      if (!data) {
-        section.append(this._historyStatus("Aguardando rateio configurado…", "compact"));
-        return section;
-      }
-
-      const busy = ["saving", "scheduling", "cancelling"]
-        .includes(this._distributionMutationState);
-      const toolbar = this._element("div", "distribution-toolbar");
-      const edit = this._button("Editar rateio", "distribution-edit");
-      const schedule = this._button("Agendar alteração", "distribution-schedule");
-      edit.disabled = busy || this._distributionMode !== "idle" || data.scheduled !== null;
-      // Agendar precisa de um rateio vigente ate a data escolhida.
-      schedule.disabled = busy || this._distributionMode !== "idle" || data.scheduled !== null
-        || data.current === null;
-      toolbar.append(edit, schedule);
-      section.append(toolbar);
-      if (this._distributionMutationMessage) {
-        const state = this._distributionMutationState === "success" ? "success"
-          : this._distributionMutationState === "revision_conflict" ? "conflict" : "error";
-        const message = this._element(
-          "div", `distribution-mutation-message ${state}`, this._distributionMutationMessage,
-        );
-        message.setAttribute("aria-live", "assertive");
-        section.append(message);
-      }
-      if (busy) {
-        section.append(this._historyStatus(
-          this._distributionMutationState === "saving" ? "Salvando rateio…"
-            : this._distributionMutationState === "scheduling" ? "Agendando rateio…"
-              : "Cancelando agendamento…",
-          "loading compact",
-        ));
-      }
-      if (data.current === null) {
-        section.append(this._element(
-          "p", "distribution-empty",
-          "Rateio ainda não informado. Diga quanto da energia excedente vai "
-          + "para cada unidade em \"Editar rateio\" — ou em Configurar, na "
-          + "página da integração.",
-        ));
-      } else {
-        section.append(this._renderDistributionRule(data.current, "current"));
-      }
-      if (this._distributionMode !== "idle" && this._distributionDraft) {
-        section.append(this._renderDistributionEditor());
-      }
-      if (data.scheduled === null) {
-        section.append(this._element(
-          "p",
-          "distribution-empty",
-          "Nenhuma alteração de rateio agendada",
-        ));
-      } else {
-        section.append(this._renderDistributionRule(data.scheduled, "scheduled"));
-        section.append(this._element(
-          "p", "distribution-scheduled-note", "Já existe uma alteração de rateio agendada.",
-        ));
-        const cancel = this._button(
-          "Cancelar agendamento", "distribution-review-cancel", "distribution-danger-action",
-        );
-        cancel.disabled = busy;
-        section.append(cancel);
-      }
-      const confirmation = this._renderDistributionConfirmation();
-      if (confirmation) section.append(confirmation);
-      if (includeHistory) section.append(this._renderDistributionHistory(data.history));
-      return section;
     }
 
     _formatOfficialDecimal(value, minimumFractionDigits = 0) {
@@ -14649,20 +11806,6 @@
       const unsigned = negative ? formatted.slice(1) : formatted;
       const prefix = currency === "BRL" ? "R$" : String(currency || "").trim();
       return `${negative ? "-" : ""}${prefix ? `${prefix} ` : ""}${unsigned}`;
-    }
-
-    _formatProjectedYears(value) {
-      if (typeof value !== "string"
-        || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) return "Indisponível";
-      const [whole, fraction = ""] = value.split(".");
-      let integer = BigInt(whole);
-      let tenth = Number(fraction[0] ?? "0");
-      if (Number(fraction[1] ?? "0") >= 5) tenth += 1;
-      if (tenth === 10) {
-        integer += 1n;
-        tenth = 0;
-      }
-      return `${integer.toLocaleString("pt-BR")},${tenth} anos`;
     }
 
     _renderPaybackProjection() {
@@ -15483,14 +12626,6 @@
       };
     }
 
-    _formatProjectedDuration(scenario) {
-      const years = this._formatProjectedYears(scenario?.payback_years);
-      const months = this._decimalOrNull(scenario?.payback_months);
-      if (months === null) return years;
-      const rounded = Math.round(months);
-      return `${years} (${rounded} ${rounded === 1 ? "mês" : "meses"})`;
-    }
-
     _paybackRemainingMonths(summary, { official = false } = {}) {
       const average = official ? summary.monthlyAverage : summary.combinedAverage;
       const realized = official ? summary.savedTotal : summary.combinedTotal;
@@ -15510,18 +12645,6 @@
         "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
       ];
       return `${names[target.getMonth()]} de ${target.getFullYear()}`;
-    }
-
-    _formatMonthYearShort(months) {
-      if (months === null) return null;
-      const target = new Date();
-      target.setDate(1);
-      target.setMonth(target.getMonth() + months);
-      const names = [
-        "jan", "fev", "mar", "abr", "mai", "jun",
-        "jul", "ago", "set", "out", "nov", "dez",
-      ];
-      return `${names[target.getMonth()]}/${target.getFullYear()}`;
     }
 
     _paybackKpiCard({ icon, tone, label, value, hint, explanation, rows }) {
@@ -15561,30 +12684,6 @@
         card.append(pop);
       }
       return card;
-    }
-
-    // Duas linhas apenas: o prazo e o mesmo prazo sem a parcela hipotética. Esse
-    // par já expressa a sensibilidade ao autoconsumo — e num intervalo mais largo
-    // que o dos três cenários de preço, que por isso saíram do painel.
-    _paybackScenarioRows(summary, months, officialMonths) {
-      const rows = [];
-      if (months !== null) {
-        rows.push({
-          label: "Fatura + Autoconsumo HA",
-          compact: true,
-          value: `${this._formatMonthYearShort(months)}`
-            + ` · ${summary.points.length + months} meses`,
-        });
-      }
-      rows.push({
-        label: "Somente fatura, sem Autoconsumo HA",
-        compact: true,
-        value: officialMonths === null
-          ? "—"
-          : `${this._formatMonthYearShort(officialMonths)}`
-            + ` · ${summary.points.length + officialMonths} meses`,
-      });
-      return rows;
     }
 
     _renderPaybackKpis(data, summary) {
@@ -16256,417 +13355,9 @@
       return foot;
     }
 
-    _renderFinanceItem(item, currency) {
-      const card = this._element("article", "finance-item");
-      const heading = this._element("div", "finance-item-heading");
-      heading.append(
-        this._element("strong", "finance-item-description", item?.description ?? "Item da fatura"),
-        this._element("strong", `finance-item-value ${item?.nature === "credito" ? "credit" : "charge"}`,
-          this._formatOfficialMoney(item?.value, currency)),
-      );
-      const metadata = this._element("div", "finance-item-metadata");
-      metadata.append(
-        this._element("span", "", item?.nature === "credito" ? "Crédito" : "Cobrança"),
-        this._element("span", "", item?.category ?? "Categoria não informada"),
-      );
-      card.append(heading, metadata);
-      const attributes = this._element("div", "finance-item-attributes");
-      if (item?.quantity !== null && item?.quantity !== undefined) {
-        const quantity = this._formatOfficialDecimal(item.quantity);
-        attributes.append(this._field(
-          "Quantidade",
-          item.unit ? `${quantity} ${item.unit}` : quantity,
-        ));
-      }
-      if (item?.tariff_with_taxes !== null && item?.tariff_with_taxes !== undefined) {
-        attributes.append(this._field(
-          "Preço unitário com tributos",
-          this._formatOfficialMoney(item.tariff_with_taxes, currency),
-        ));
-      }
-      if (item?.tariff_without_taxes !== null && item?.tariff_without_taxes !== undefined) {
-        attributes.append(this._field(
-          "Tarifa unitária",
-          this._formatOfficialMoney(item.tariff_without_taxes, currency),
-        ));
-      }
-      if (attributes.childElementCount > 0) card.append(attributes);
-      return card;
-    }
-
-    _renderFinance() {
-      const section = this._element("section", "panel block finance-section");
-      section.dataset.financeSection = "";
-      const header = this._element("header", "finance-header");
-      const heading = this._element("div", "finance-heading");
-      heading.append(
-        this._element("h3", "section-title", "Financeiro oficial"),
-        this._element("span", "finance-official-badge", "OFICIAL DA FATURA"),
-      );
-      header.append(heading);
-      section.append(header);
-
-      const reference = this._financeReference();
-      const key = this._financeKey();
-      const data = reference ? this._financeCache.get(key) : null;
-      const error = reference ? this._financeErrors.get(key) : null;
-      const loading = reference ? this._financeInFlight.has(key) : false;
-      if (!reference) {
-        section.append(this._historyStatus(
-          this._cyclesCatalogInFlight.has(this._selectedUnit)
-            ? "Carregando referências financeiras oficiais..."
-            : "Não há fatura oficial para esta referência.",
-          this._cyclesCatalogInFlight.has(this._selectedUnit)
-            ? "loading compact" : "compact",
-        ));
-        return section;
-      }
-      if (!data && loading) {
-        section.append(this._historyStatus(
-          "Carregando dados financeiros oficiais...", "loading compact",
-        ));
-        return section;
-      }
-      if (!data && error) {
-        const messages = {
-          not_found: "Não há fatura oficial para esta referência.",
-          unavailable: "Os dados financeiros oficiais estão indisponíveis no momento.",
-          error: "Não foi possível carregar os dados financeiros oficiais.",
-        };
-        section.append(this._element("div", "finance-error", messages[error]));
-        return section;
-      }
-      if (!data) {
-        section.append(this._historyStatus(
-          "Carregando dados financeiros oficiais...", "loading compact",
-        ));
-        return section;
-      }
-
-      const official = data.official ?? {};
-      const currency = data.currency ?? "BRL";
-      const summary = this._element("div", "finance-summary");
-      const entries = [
-        ["Total da fatura", official.bill_total, "primary"],
-        ["Tributos", official.taxes_total, ""],
-        ["CIP/COSIP", official.cip_cosip, ""],
-        ["Juros", official.interest, ""],
-        ["Multa", official.fine, ""],
-        ["Créditos financeiros", official.financial_credits, ""],
-      ];
-      for (const [label, value, modifier] of entries) {
-        const metric = this._element("div", `finance-summary-item ${modifier}`.trim());
-        metric.append(
-          this._element("span", "finance-summary-label", label),
-          this._element("strong", "finance-summary-value", this._formatOfficialMoney(value, currency)),
-        );
-        summary.append(metric);
-      }
-
-      const details = this._element("details", "finance-details");
-      details.append(this._element("summary", "finance-details-summary", "Detalhamento da fatura"));
-      const body = this._element("div", "finance-details-body");
-      const period = data.period ?? {};
-      body.append(this._element(
-        "p", "finance-period",
-        `${data.billing_reference ?? reference} · ${this._formatSceeDate(period.start)} → ${this._formatSceeDate(period.end)}`,
-      ));
-      const items = Array.isArray(data.items) ? data.items : [];
-      const list = this._element("div", "finance-items");
-      for (const item of items) list.append(this._renderFinanceItem(item, currency));
-      if (items.length === 0) {
-        list.append(this._element("p", "empty", "Nenhum item oficial informado."));
-      }
-      body.append(list);
-      const reconciliation = data.reconciliation ?? {};
-      const reconciliationBox = this._element(
-        "div",
-        `finance-reconciliation ${reconciliation.reconciled === false ? "warning" : "ok"}`,
-      );
-      const reconciliationMessage = reconciliation.reconciled === true
-        ? "Itens conferem com o total oficial."
-        : reconciliation.reconciled === false
-          ? "Os itens não reconciliam com o total oficial."
-          : "Reconciliação não informada.";
-      reconciliationBox.append(
-        this._element("strong", "", reconciliationMessage),
-        this._element(
-          "span", "",
-          `Total dos itens: ${this._formatOfficialMoney(reconciliation.items_total, currency)} · Diferença: ${this._formatOfficialMoney(reconciliation.difference, currency)}`,
-        ),
-      );
-      body.append(reconciliationBox);
-      details.append(body);
-      section.append(summary, details);
-      return section;
-    }
-
-    _renderSelfConsumption() {
-      if (this._selectedUnit !== this._generator) return null;
-
-      const section = this._element("section", "panel block self-consumption-section");
-      section.dataset.selfConsumptionSection = "";
-      section.append(this._element("h3", "section-title", "Autoconsumo físico calculado"));
-
-      const cycle = this._selectedCycle();
-      const reference = cycle?.status === "closed"
-        && typeof cycle.billing_reference === "string"
-        ? cycle.billing_reference
-        : null;
-      const key = this._selfConsumptionKey();
-      const data = reference ? this._selfConsumptionCache.get(key) : null;
-      const error = reference ? this._selfConsumptionErrors.get(key) : null;
-      const loading = reference ? this._selfConsumptionInFlight.has(key) : false;
-
-      if (!reference) {
-        section.append(this._historyStatus(
-          this._cyclesCatalogInFlight.has(this._generator)
-            ? "Carregando referências de medição…"
-            : "Autoconsumo disponível para faturas oficiais fechadas.",
-          this._cyclesCatalogInFlight.has(this._generator)
-            ? "loading compact" : "compact",
-        ));
-        return section;
-      }
-
-      if (!data && loading) {
-        section.append(this._historyStatus(
-          "Carregando autoconsumo físico…", "loading compact",
-        ));
-        return section;
-      }
-
-      if (!data && error) {
-        const messages = {
-          not_found: "Não há dados de autoconsumo para esta referência.",
-          unavailable: "Os dados de autoconsumo físico estão indisponíveis no momento.",
-          error: "Não foi possível carregar o autoconsumo físico.",
-        };
-        const errorBox = this._element(
-          "div", "self-consumption-error", messages[error] ?? messages.error,
-        );
-        errorBox.append(this._button("Tentar novamente", "self-consumption-retry"));
-        section.append(errorBox);
-        return section;
-      }
-
-      if (!data) {
-        section.append(this._historyStatus(
-          "Carregando autoconsumo físico…", "loading compact",
-        ));
-        return section;
-      }
-
-      const status = data.status ?? "unavailable";
-      const energy = data.energy && typeof data.energy === "object" ? data.energy : {};
-      const blockers = Array.isArray(data.blockers) ? data.blockers : [];
-
-      const statusConfig = {
-        confirmed: {
-          label: "Confirmado",
-          badgeClass: "sc-badge sc-confirmed",
-          description: "Autoconsumo calculado a partir do histórico de geração e exportação.",
-        },
-        partial: {
-          label: "Parcial",
-          badgeClass: "sc-badge sc-partial",
-          description: "Valor observado no período disponível. O ciclo possui lacunas na medição e não foi extrapolado.",
-        },
-        unavailable: {
-          label: "Indisponível",
-          badgeClass: "sc-badge sc-unavailable",
-          description: blockers.includes("invalid_billing_period")
-            ? "Não há período de medição válido disponível para esta referência."
-            : "Dados de medição indisponíveis para esta referência.",
-        },
-      }[status] ?? {
-        label: "Indisponível",
-        badgeClass: "sc-badge sc-unavailable",
-        description: "Dados de medição indisponíveis para esta referência.",
-      };
-
-      const summary = this._element("div", "self-consumption-summary");
-      const mainMetric = this._element("div", "self-consumption-main");
-      const mainHeader = this._element("div", "self-consumption-main-header");
-      mainHeader.append(
-        this._element("span", "self-consumption-label", "Autoconsumo solar"),
-        this._element("span", statusConfig.badgeClass, statusConfig.label),
-      );
-      const valueFormatted = typeof energy.self_consumption_kwh === "number"
-        ? this._valueWithUnit(energy.self_consumption_kwh, "kWh", 1)
-        : "—";
-
-      mainMetric.append(
-        mainHeader,
-        this._element("strong", "self-consumption-value", valueFormatted),
-        this._element("p", "self-consumption-description", statusConfig.description),
-      );
-      summary.append(mainMetric);
-
-      const period = data.period && typeof data.period === "object" ? data.period : {};
-      if (period.from && period.until) {
-        const periodBox = this._element("div", "self-consumption-period-box");
-        periodBox.append(
-          this._element(
-            "span", "self-consumption-period-label",
-            `Período do ciclo: ${this._formatSceeDate(period.from)} → ${this._formatSceeDate(period.until)}`,
-          ),
-        );
-        summary.append(periodBox);
-      }
-
-      section.append(summary);
-      return section;
-    }
-
     _formatSceeEnergy(value) {
       if (value === null || value === undefined) return "Não informado";
       return `${this._formatNumber(value, 2, 2)} kWh`;
-    }
-
-    _formatSceePercent(value) {
-      if (value === null || value === undefined) return "Não informado";
-      return `${this._formatNumber(value, 3)}%`;
-    }
-
-    _formatSceeDate(value) {
-      if (value === null || value === undefined) return "Não informado";
-      const formatted = this._formatDate(value);
-      return formatted === "—" ? "Não informado" : formatted;
-    }
-
-    _renderScee() {
-      const section = this._element("section", "panel block scee-section");
-      section.dataset.sceeSection = "";
-      const header = this._element("header", "scee-header");
-      header.append(this._element("h3", "section-title", "SCEE e créditos"));
-      section.append(header);
-
-      const reference = this._sceeReference();
-      const key = this._sceeKey();
-      const data = reference ? this._sceeCache.get(key) : null;
-      const error = reference ? this._sceeErrors.get(key) : null;
-      const loading = reference ? this._sceeInFlight.has(key) : false;
-      if (!reference) {
-        section.append(this._historyStatus(
-          this._cyclesCatalogInFlight.has(this._selectedUnit)
-            ? "Carregando referências SCEE…"
-            : "SCEE disponível para faturas oficiais fechadas.",
-          this._cyclesCatalogInFlight.has(this._selectedUnit)
-            ? "loading compact"
-            : "compact",
-        ));
-        return section;
-      }
-      if (!data && loading) {
-        section.append(this._historyStatus("Carregando SCEE…", "loading compact"));
-        return section;
-      }
-      if (!data && error) {
-        section.append(this._element("div", "scee-error", error));
-        return section;
-      }
-      if (!data) {
-        section.append(this._historyStatus(
-          "SCEE disponível para faturas oficiais fechadas.", "compact",
-        ));
-        return section;
-      }
-
-      const official = data.official && typeof data.official === "object"
-        ? data.official
-        : {};
-      const period = data.period && typeof data.period === "object"
-        ? data.period
-        : {};
-      const extraction = data.extraction && typeof data.extraction === "object"
-        ? data.extraction
-        : {};
-      const metadata = this._element("div", "scee-metadata");
-      metadata.append(
-        this._field(
-          "Período da fatura",
-          `${this._formatSceeDate(period.start)} → ${this._formatSceeDate(period.end)}`,
-        ),
-      );
-      if (official.applicable !== false) {
-        metadata.append(
-          this._field("Ciclo SCEE", official.scee_cycle ?? "Não informado"),
-        );
-      }
-
-      if (official.applicable === false) {
-        const notApplicable = this._element(
-          "div",
-          "scee-not-applicable",
-          "SCEE não aplicável nesta referência",
-        );
-        const extractionBlock = this._element("div", "scee-extraction");
-        extractionBlock.append(this._field(
-          "Extração",
-          extraction.status ?? "Não informado",
-        ));
-        const alerts = Array.isArray(extraction.alerts) ? extraction.alerts : [];
-        if (alerts.length > 0) {
-          const disclosure = this._element("details", "scee-alerts");
-          disclosure.append(this._element(
-            "summary", "", `Alertas da extração (${alerts.length})`,
-          ));
-          const list = this._element("ul", "scee-alert-list");
-          for (const alert of alerts) list.append(this._element("li", "", alert));
-          disclosure.append(list);
-          extractionBlock.append(disclosure);
-        }
-        section.append(metadata, notApplicable, extractionBlock);
-        return section;
-      }
-
-      const primary = this._element("div", "scee-primary-grid");
-      for (const [label, value] of [
-        ["Consumo SCEE", official.consumption_scee_kwh],
-        ["Energia compensada", official.energy_compensated_kwh],
-        ["Consumo não compensado", official.non_compensated_consumption_kwh],
-        ["Crédito recebido", official.credit_received_kwh],
-        ["Excedente recebido", official.excess_received_kwh],
-        ["Saldo", official.balance_kwh],
-      ]) {
-        primary.append(this._field(label, this._formatSceeEnergy(value)));
-      }
-
-      const secondary = this._element("div", "scee-secondary-grid");
-      secondary.append(
-        this._field(
-          "Saldo a expirar em 30 dias",
-          this._formatSceeEnergy(official.balance_expiring_30_days_kwh),
-        ),
-        this._field(
-          "Saldo a expirar em 60 dias",
-          this._formatSceeEnergy(official.balance_expiring_60_days_kwh),
-        ),
-        this._field(
-          "Percentual oficial na fatura",
-          this._formatSceePercent(official.distribution_percent),
-        ),
-      );
-
-      const extractionBlock = this._element("div", "scee-extraction");
-      extractionBlock.append(this._field(
-        "Extração",
-        extraction.status ?? "Não informado",
-      ));
-      const alerts = Array.isArray(extraction.alerts) ? extraction.alerts : [];
-      if (alerts.length > 0) {
-        const disclosure = this._element("details", "scee-alerts");
-        disclosure.append(this._element(
-          "summary", "", `Alertas da extração (${alerts.length})`,
-        ));
-        const list = this._element("ul", "scee-alert-list");
-        for (const alert of alerts) list.append(this._element("li", "", alert));
-        disclosure.append(list);
-        extractionBlock.append(disclosure);
-      }
-      section.append(metadata, primary, secondary, extractionBlock);
-      return section;
     }
 
     _qualityItems(evidence) {
@@ -17175,13 +13866,6 @@
       return container;
     }
 
-    _renderAuditQuality(evidence) {
-      const section = this._element("section", "panel block quality audit-quality");
-      section.append(this._element("h3", "section-title", "Auditoria e qualidade"));
-      section.append(this._renderAuditResult(evidence));
-      return section;
-    }
-
     _styles() {
       return `
         :host {
@@ -17294,13 +13978,6 @@
           background: color-mix(in srgb, var(--primary-color) 14%, transparent);
         }
         .content { display: grid; gap: 14px; padding: 14px; }
-        .overview-heading {
-          display: flex;
-          align-items: end;
-          justify-content: space-between;
-          gap: 16px;
-          padding: 6px 2px 2px;
-        }
         .overview-heading-copy { display: grid; gap: 5px; }
         /* Sem o wrapper que antes segurava rotulo e setas, o seletor responde
            sozinho ao flex do cabecalho: sem isso o titulo o comprimiria. */
@@ -17319,65 +13996,14 @@
           gap: 14px;
           min-width: 0;
         }
-        .overview-unit-card {
-          position: relative;
-          display: grid;
-          align-content: start;
-          gap: 14px;
-          overflow: hidden;
-        }
-        .overview-unit-header {
-          display: grid;
-          grid-template-columns: 64px minmax(0, 1fr);
-          align-items: center;
-          gap: 11px;
-        }
-        .overview-unit-photo-wrap {
-          position: relative;
-          width: 64px;
-          height: 64px;
-          overflow: hidden;
-          border-radius: 13px;
-          background: color-mix(in srgb, var(--primary-color) 9%, transparent);
-        }
-        .overview-unit-photo,
-        .overview-unit-photo-placeholder {
-          position: absolute;
-          inset: 0;
-          width: 100%;
-          height: 100%;
-        }
         .overview-unit-photo { object-fit: cover; }
-        .overview-unit-photo-placeholder {
-          display: grid;
-          place-items: center;
-          padding: 18px;
-          color: var(--primary-color);
-        }
         .overview-unit-photo-placeholder[hidden],
         .overview-unit-photo[hidden] { display: none; }
         .overview-unit-title { display: grid; justify-items: start; gap: 6px; min-width: 0; }
         .overview-unit-name { margin: 0; overflow-wrap: anywhere; font-size: 18px; }
-        .overview-cycle-status {
-          padding: 3px 7px;
-          border-radius: 999px;
-          background: color-mix(in srgb, var(--secondary-text-color) 12%, transparent);
-          color: var(--secondary-text-color);
-          font-size: 10px;
-          font-weight: 800;
-          letter-spacing: .04em;
-          text-transform: uppercase;
-        }
         .overview-cycle-status.open {
           background: color-mix(in srgb, var(--success-color, #43a047) 14%, transparent);
           color: var(--success-color, #2e7d32);
-        }
-        .overview-primary-metric {
-          display: grid;
-          gap: 5px;
-          padding: 13px;
-          border-radius: 12px;
-          background: color-mix(in srgb, var(--primary-color) 8%, transparent);
         }
         .overview-primary-label,
         .overview-classification,
@@ -17390,10 +14016,6 @@
           border-top: 1px solid var(--divider-color);
         }
         .overview-unit-facts .field-value { font-size: 12px; }
-        .overview-unit-action {
-          width: 100%;
-          border-color: color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));
-        }
         .overview-updating.error-text { color: var(--error-color, #db4437); }
         .energy-flow {
           display: grid;
@@ -17505,31 +14127,10 @@
         }
         /* Dentro do popup o painel perde a propria moldura: quem emoldura e o
            dialogo. Duas bordas concentricas so somam ruido. */
-        .distribution-in-modal {
-          display: grid;
-          gap: 12px;
-          padding: 0;
-          border: 0;
-          background: transparent;
-        }
         .energy-flow-header { display: flex; justify-content: space-between; gap: 12px; }
         .energy-flow-heading { display: grid; gap: 3px; }
         .energy-flow-heading .section-title { margin: 0; font-size: 17px; line-height: 1.2; }
         .energy-flow-heading .overview-description { display: none; }
-        .energy-flow-diagram {
-          display: grid;
-          grid-template-columns:
-            minmax(140px, 1fr) 48px
-            minmax(140px, 1fr) 48px
-            minmax(140px, 1fr) 48px
-            minmax(150px, 1fr) 48px
-            minmax(140px, 1fr) minmax(220px, 1.25fr);
-          align-items: center;
-          gap: 4px;
-          min-width: 0;
-          min-height: 300px;
-          padding: 14px 2px 8px;
-        }
         /* Fora dos circulos, o painel usa um neutro so. A cor identifica a
            grandeza no anel; texto, setas e ligacoes nao competem com ela. */
         .energy-flow {
@@ -17537,199 +14138,26 @@
           --fluxo-rotulo: var(--ink-2);
           --fluxo-traco: color-mix(in srgb, var(--ink-2) 55%, transparent);
         }
-        .energy-flow-node {
-          position: relative;
-          z-index: 1;
-          display: grid;
-          justify-items: center;
-          align-content: start;
-          gap: 3px;
-          min-width: 0;
-          padding: 0 6px;
-          background: transparent;
-        }
-        .energy-flow-icon {
-          display: grid;
-          place-items: center;
-          width: 116px;
-          height: 116px;
-          border: 2px solid currentColor;
-          border-radius: 50%;
-          background: radial-gradient(circle,
-            color-mix(in srgb, currentColor 19%, var(--bg-panel)) 0%,
-            color-mix(in srgb, currentColor 8%, var(--bg-panel)) 70%);
-          box-shadow: 0 0 20px color-mix(in srgb, currentColor 18%, transparent);
-          color: var(--no-cor, var(--primary-color));
-        }
-        .energy-flow-icon ha-icon {
-          width: 52px;
-          height: 52px;
-          --mdc-icon-size: 52px;
-        }
         .energy-flow-node-copy { display: grid; justify-items: center; gap: 0; min-width: 0; text-align: center; }
         /* Entrelinha justa, corpo intacto: e o unico jeito de continuar
            encolhendo na vertical sem diminuir a letra. */
-        .energy-flow-label {
-          color: var(--fluxo-rotulo);
-          font-size: 13px;
-          line-height: 1.2;
-        }
-        .energy-flow-value {
-          overflow-wrap: anywhere;
-          color: var(--fluxo-texto);
-          font-size: 22px;
-          line-height: 1.15;
-          white-space: nowrap;
-        }
-        .energy-flow-classification {
-          color: var(--ink-2);
-          font-size: 10px;
-          font-weight: 800;
-          letter-spacing: .05em;
-          text-transform: uppercase;
-        }
-        .energy-flow-note {
-          max-width: 155px;
-          color: var(--muted);
-          font-size: 10px;
-          line-height: 1.2;
-        }
-        .energy-flow-arrow {
-          position: relative;
-          z-index: 0;
-          width: 100%;
-          height: 34px;
-          overflow: hidden;
-          color: transparent;
-          font-size: 0;
-          background: linear-gradient(90deg,
-            rgba(45, 109, 137, .22),
-            rgba(47, 132, 174, .56));
-          clip-path: polygon(0 12%, 78% 12%, 100% 50%, 78% 88%, 0 88%, 10% 50%);
-        }
         .energy-flow-node.solar + .energy-flow-arrow {
           background: linear-gradient(90deg, rgba(83, 151, 48, .22), rgba(103, 190, 53, .68));
-        }
-        .energy-flow-node.self-consumption + .energy-flow-arrow {
-          background: linear-gradient(90deg, rgba(35, 112, 157, .22), rgba(55, 152, 211, .68));
         }
         .energy-flow-node.export + .energy-flow-arrow,
         .energy-flow-node.network + .energy-flow-arrow {
           background: linear-gradient(90deg, rgba(91, 76, 156, .22), rgba(143, 72, 188, .7));
         }
-        .energy-flow-destinations {
-          position: relative;
-          display: grid;
-          gap: 3px;
-          min-width: 0;
-        }
-        .energy-flow-destinations::before {
-          content: "";
-          position: absolute;
-          left: -15px;
-          top: 12%;
-          bottom: 12%;
-          width: 1px;
-          background: var(--fluxo-traco);
-        }
-        .energy-flow-destinations::after {
-          content: "";
-          position: absolute;
-          left: -50px;
-          top: 50%;
-          width: 35px;
-          height: 1px;
-          background: var(--fluxo-traco);
-        }
         /* Sem borda, sem fundo, sem raio. Eram quatro camadas de moldura para
            exibir tres valores — a moldura ocupava mais pixel que o conteudo. */
-        .energy-flow-share {
-          position: relative;
-          display: grid;
-          align-content: center;
-          gap: 2px;
-          min-width: 0;
-          padding: 0;
-        }
-        .energy-flow-share-head {
-          display: grid;
-          grid-template-columns: 17px minmax(0, 1fr) auto;
-          align-items: baseline;
-          gap: 7px;
-        }
-        .energy-flow-share-track {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) 34px;
-          align-items: center;
-          gap: 8px;
-        }
-        .energy-flow-share-bar {
-          height: 5px;
-          border-radius: 999px;
-          background: color-mix(in srgb, var(--fluxo-rotulo) 13%, transparent);
-          overflow: hidden;
-        }
         /* Aqui a cor da unidade tem area de sobra. E o unico lugar em que ela
            carrega significado sem depender de contraste de texto: barra e
            elemento grafico, o limiar e 3,0 e nao 4,5. */
-        .energy-flow-share-fill {
-          display: block;
-          width: 0;
-          height: 100%;
-          border-radius: inherit;
-          background: var(--unit-cor, #607d8b);
-        }
-        .energy-flow-share::before {
-          content: "";
-          position: absolute;
-          left: -15px;
-          top: 50%;
-          width: 15px;
-          height: 1px;
-          background: var(--unit-cor, #607d8b);
-        }
-        .energy-flow-share ha-icon {
-          align-self: center;
-          width: 17px;
-          color: var(--unit-cor, #607d8b);
-          --mdc-icon-size: 17px;
-        }
         /* O nome fica neutro: quem carrega a cor da unidade agora e o icone e
            a barra. Em 11px a cor nao passava no contraste — na barra passa. */
-        .energy-flow-share-head b {
-          overflow: hidden;
-          color: var(--fluxo-rotulo);
-          font-size: 11px;
-          font-weight: 600;
-          letter-spacing: .02em;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
         /* O kWh recebido e a resposta da linha — quanta energia a unidade
            levou. O percentual e so a regra que produziu esse numero, entao
            acompanha na barra em vez de liderar. */
-        .energy-flow-share-head small {
-          color: var(--fluxo-texto);
-          font-size: 14px;
-          font-weight: 700;
-          font-variant-numeric: tabular-nums;
-          line-height: 1.15;
-          white-space: nowrap;
-        }
-        .energy-flow-share-track strong {
-          color: var(--fluxo-rotulo);
-          font-size: 10px;
-          font-weight: 600;
-          font-variant-numeric: tabular-nums;
-          text-align: right;
-        }
-        .energy-flow-disclaimer {
-          margin: 0;
-          color: var(--muted);
-          font-size: 10px;
-          line-height: 1.4;
-          text-align: right;
-        }
         .energy-flow {
           min-height: 0;
           overflow: hidden;
@@ -17840,37 +14268,14 @@
           color: var(--secondary-text-color);
           text-align: center;
         }
-        .energy-flow-diagram {
-          grid-template-columns:
-            minmax(105px, 1fr) 24px minmax(105px, 1fr) 24px
-            minmax(105px, 1fr) 24px minmax(105px, 1fr) 24px
-            minmax(115px, 1fr) 72px minmax(190px, 1.25fr);
-          gap: 2px;
-          min-height: 131px;
-          padding: 0;
-        }
         /* Anel e glifo crescem juntos: 54->81 e 32->48 mantem a mesma
            proporcao de antes (0,59). Agora e a coluna dos nos que manda na
            altura do diagrama, e nao mais a coluna de destinos. */
         .energy-flow-icon { width: 81px; height: 81px; }
         .energy-flow-icon ha-icon { width: 48px; height: 48px; --mdc-icon-size: 48px; }
         .energy-flow-value { font-size: 17px; }
-        .energy-flow-arrow {
-          height: auto;
-          clip-path: none;
-          color: var(--fluxo-rotulo);
-          font-size: 20px;
-          text-align: center;
-          background: none !important;
-        }
         .energy-flow-branch { align-self: stretch; min-height: 117px; }
         .energy-flow-branch svg { display: block; width: 100%; height: 100%; }
-        .energy-flow-branch path {
-          fill: none;
-          stroke: var(--fluxo-traco);
-          stroke-width: 1.2;
-          vector-effect: non-scaling-stroke;
-        }
         .energy-flow-destinations::before,
         .energy-flow-destinations::after,
         .energy-flow-share::before { display: none; }
@@ -18373,14 +14778,6 @@
         }
         .field-value { min-width: 0; overflow-wrap: anywhere; text-align: right; }
         .compact-list { display: grid; gap: 8px; margin-top: 5px; }
-        .compact-row {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) auto;
-          align-items: center;
-          gap: 12px;
-          padding-top: 8px;
-          border-top: 1px solid var(--divider-color);
-        }
         .compact-row span { display: grid; gap: 2px; min-width: 0; }
         .compact-row b { text-align: right; }
         .empty { color: var(--secondary-text-color); font-size: 13px; line-height: 1.45; }
@@ -18399,78 +14796,10 @@
         .quality-list li { line-height: 1.4; font-size: 13px; }
         .distribution-section { grid-column: 1 / -1; }
         .distribution-context { color: var(--secondary-text-color); font-size: 12px; line-height: 1.45; }
-        .distribution-toolbar,
-        .distribution-actions {
-          display: flex;
-          flex-wrap: wrap;
-          align-items: center;
-          gap: 8px;
-        }
-        .distribution-primary-action {
-          border-color: var(--primary-color);
-          background: color-mix(in srgb, var(--primary-color) 14%, transparent);
-        }
-        .distribution-danger-action {
-          justify-self: start;
-          border-color: color-mix(in srgb, var(--error-color) 55%, var(--divider-color));
-        }
-        .distribution-editor,
-        .distribution-confirmation {
-          display: grid;
-          gap: 12px;
-          min-width: 0;
-          padding: 14px;
-          border: 1px solid color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));
-          border-radius: 11px;
-          background: color-mix(in srgb, var(--primary-color) 6%, var(--card-background-color));
-        }
-        .distribution-confirmation {
-          border-width: 2px;
-          box-shadow: 0 8px 24px color-mix(in srgb, #000 16%, transparent);
-        }
         .distribution-editor-title { margin: 0; font-size: 15px; }
-        .distribution-input-grid,
-        .distribution-schedule-fields {
-          display: grid;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 9px;
-          min-width: 0;
-        }
         .distribution-schedule-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .distribution-input-field { display: grid; gap: 5px; min-width: 0; }
-        .distribution-percent-control {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) auto;
-          align-items: center;
-          gap: 6px;
-          min-width: 0;
-        }
-        .distribution-input {
-          box-sizing: border-box;
-          width: 100%;
-          min-width: 0;
-          height: var(--energy-control-height);
-          padding: 0 10px;
-          border: 1px solid var(--divider-color);
-          border-radius: 9px;
-          background: var(--card-background-color);
-          color: var(--primary-text-color);
-          font: inherit;
-        }
-        .distribution-input:focus-visible {
-          outline: 2px solid var(--primary-color);
-          outline-offset: 2px;
-        }
         .distribution-percent-suffix { font-weight: 700; }
-        .distribution-editor-total {
-          display: grid;
-          grid-template-columns: auto auto minmax(0, 1fr);
-          align-items: baseline;
-          gap: 8px;
-          padding: 10px 12px;
-          border: 1px solid var(--divider-color);
-          border-radius: 9px;
-        }
         .distribution-editor-total.invalid { border-color: var(--error-color, #db4437); }
         .distribution-editor-total.valid { border-color: var(--success-color, #43a047); }
         .distribution-editor-total small { color: var(--secondary-text-color); }
@@ -18480,39 +14809,9 @@
         .distribution-scheduled-note { font-size: 13px; line-height: 1.45; }
         .distribution-confirmation-total { font-weight: 800; }
         .distribution-scheduled-note { color: var(--secondary-text-color); }
-        .distribution-mutation-message {
-          padding: 10px 12px;
-          border: 1px solid var(--divider-color);
-          border-radius: 9px;
-          font-size: 13px;
-          line-height: 1.45;
-        }
-        .distribution-mutation-message.success {
-          border-color: var(--success-color, #43a047);
-        }
         .distribution-mutation-message.error,
         .distribution-mutation-message.conflict {
           border-color: var(--error-color, #db4437);
-        }
-        .distribution-rule {
-          display: grid;
-          gap: 10px;
-          min-width: 0;
-          padding: 13px;
-          border: 1px solid var(--divider-color);
-          border-radius: 11px;
-          background: color-mix(in srgb, var(--secondary-text-color) 4%, transparent);
-        }
-        .distribution-rule.scheduled {
-          border-color: color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));
-          background: color-mix(in srgb, var(--primary-color) 7%, transparent);
-        }
-        .distribution-rule-title {
-          margin: 0;
-          color: var(--secondary-text-color);
-          font-size: 11px;
-          letter-spacing: .04em;
-          text-transform: uppercase;
         }
         .distribution-rule-label { overflow-wrap: anywhere; font-size: 15px; }
         .distribution-shares {
@@ -18533,25 +14832,8 @@
         .distribution-percent { overflow-wrap: anywhere; font-size: 20px; }
         .distribution-shares.compact .distribution-share { padding: 8px; }
         .distribution-shares.compact .distribution-percent { font-size: 14px; }
-        .distribution-period {
-          display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 10px;
-        }
         .distribution-period .field { display: grid; align-content: start; gap: 4px; }
         .distribution-period .field-value { text-align: left; }
-        .distribution-empty,
-        .distribution-error {
-          padding: 11px 12px;
-          border: 1px solid var(--divider-color);
-          border-radius: 10px;
-          color: var(--secondary-text-color);
-          font-size: 13px;
-        }
-        .distribution-error {
-          border-color: color-mix(in srgb, var(--error-color) 35%, var(--divider-color));
-          color: var(--primary-text-color);
-        }
         .distribution-history { min-width: 0; }
         .distribution-history-summary { cursor: pointer; font-size: 13px; font-weight: 700; }
         .distribution-history-list { display: grid; gap: 9px; margin-top: 10px; }
@@ -18570,137 +14852,9 @@
           overflow-wrap: anywhere;
         }
         .self-consumption-section { grid-column: 1 / -1; min-width: 0; }
-        .self-consumption-summary {
-          display: grid;
-          gap: 12px;
-          min-width: 0;
-        }
-        .self-consumption-main {
-          display: grid;
-          gap: 6px;
-          min-width: 0;
-          padding: 14px;
-          border-radius: 10px;
-          border: 1px solid color-mix(in srgb, var(--primary-color) 38%, var(--divider-color));
-          background: color-mix(in srgb, var(--primary-color) 8%, transparent);
-        }
-        .self-consumption-main-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 8px;
-        }
-        .self-consumption-label {
-          color: var(--secondary-text-color);
-          font-size: 12px;
-          font-weight: 600;
-        }
-        .self-consumption-value {
-          overflow-wrap: anywhere;
-          font-size: 26px;
-          color: var(--primary-text-color);
-        }
-        .self-consumption-description {
-          margin: 0;
-          color: var(--secondary-text-color);
-          font-size: 12px;
-          line-height: 1.4;
-        }
-        .sc-badge {
-          padding: 3px 8px;
-          border-radius: 999px;
-          font-size: 10px;
-          font-weight: 800;
-          letter-spacing: .04em;
-        }
-        .sc-confirmed {
-          background: color-mix(in srgb, var(--success-color, #43a047) 16%, transparent);
-          color: var(--success-color, #43a047);
-        }
-        .sc-partial {
-          background: color-mix(in srgb, var(--warning-color, #f6a623) 16%, transparent);
-          color: var(--warning-color, #f6a623);
-        }
-        .sc-unavailable {
-          background: color-mix(in srgb, var(--secondary-text-color) 14%, transparent);
-          color: var(--secondary-text-color);
-        }
-        .self-consumption-period-box {
-          color: var(--secondary-text-color);
-          font-size: 11px;
-        }
-        .self-consumption-error {
-          display: grid;
-          justify-items: start;
-          gap: 8px;
-          padding: 11px 12px;
-          border: 1px solid color-mix(in srgb, var(--error-color) 35%, var(--divider-color));
-          border-radius: 10px;
-          font-size: 13px;
-        }
         .finance-section { grid-column: 1 / -1; min-width: 0; }
-        .finance-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          min-width: 0;
-        }
         .finance-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
         .finance-heading .section-title { margin: 0; }
-        .finance-official-badge {
-          padding: 3px 7px;
-          border-radius: 999px;
-          background: color-mix(in srgb, var(--primary-color) 13%, transparent);
-          color: var(--primary-color);
-          font-size: 10px;
-          font-weight: 800;
-          letter-spacing: .05em;
-        }
-        .finance-reference-controls {
-          display: grid;
-          grid-template-columns: var(--energy-control-height) minmax(110px, auto) var(--energy-control-height);
-          align-items: center;
-          gap: 6px;
-          min-width: 0;
-        }
-        .finance-reference-button {
-          width: var(--energy-control-height);
-          min-width: var(--energy-control-height);
-          height: var(--energy-control-height);
-          min-height: var(--energy-control-height);
-          padding: 0;
-        }
-        .finance-reference-select {
-          min-width: 0;
-          height: var(--energy-control-height);
-          padding: 0 28px 0 10px;
-          border: 1px solid var(--divider-color);
-          border-radius: 9px;
-          background: var(--card-background-color);
-          color: var(--primary-text-color);
-          font: inherit;
-          font-size: 12px;
-          font-weight: 600;
-        }
-        .finance-reference-select:focus-visible {
-          outline: 2px solid var(--primary-color);
-          outline-offset: 2px;
-        }
-        .finance-summary {
-          display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 9px;
-          min-width: 0;
-        }
-        .finance-summary-item {
-          display: grid;
-          gap: 5px;
-          min-width: 0;
-          padding: 11px;
-          border-radius: 10px;
-          background: color-mix(in srgb, var(--primary-text-color) 4%, transparent);
-        }
         .finance-summary-item.primary {
           border: 1px solid color-mix(in srgb, var(--primary-color) 38%, var(--divider-color));
           background: color-mix(in srgb, var(--primary-color) 8%, transparent);
@@ -18710,38 +14864,14 @@
         .finance-summary-item.primary .finance-summary-value { font-size: 22px; }
         .finance-details { min-width: 0; }
         .finance-details-summary { cursor: pointer; font-size: 13px; font-weight: 700; }
-        .finance-details-summary:focus-visible {
-          outline: 2px solid var(--primary-color);
-          outline-offset: 3px;
-        }
         .finance-details-body { display: grid; gap: 11px; margin-top: 11px; min-width: 0; }
         .finance-period { color: var(--secondary-text-color); font-size: 12px; }
         .finance-items { display: grid; gap: 8px; min-width: 0; }
-        .finance-item {
-          display: grid;
-          gap: 8px;
-          min-width: 0;
-          padding: 11px;
-          border: 1px solid var(--divider-color);
-          border-radius: 10px;
-        }
-        .finance-item-heading {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) auto;
-          gap: 12px;
-          align-items: baseline;
-        }
         .finance-item-description,
         .finance-item-value { overflow-wrap: anywhere; }
         .finance-item-value.credit { color: var(--success-color, #2e7d32); }
         .finance-item-metadata { display: flex; flex-wrap: wrap; gap: 6px 12px; }
         .finance-item-metadata span { color: var(--secondary-text-color); font-size: 11px; }
-        .finance-item-attributes {
-          display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 8px;
-          min-width: 0;
-        }
         .finance-item-attributes .field {
           display: grid;
           gap: 3px;
@@ -18749,25 +14879,7 @@
           border-top: 1px solid var(--divider-color);
         }
         .finance-item-attributes .field-value { text-align: left; }
-        .finance-reconciliation {
-          display: grid;
-          gap: 4px;
-          padding: 10px 12px;
-          border: 1px solid var(--success-color, #43a047);
-          border-radius: 9px;
-          font-size: 12px;
-          line-height: 1.4;
-        }
-        .finance-reconciliation.warning {
-          border-color: var(--warning-color, #f6a623);
-        }
         .finance-reconciliation span { color: var(--secondary-text-color); }
-        .finance-error {
-          padding: 11px 12px;
-          border: 1px solid color-mix(in srgb, var(--error-color) 35%, var(--divider-color));
-          border-radius: 10px;
-          font-size: 13px;
-        }
         .payback-projection-section { grid-column: 1 / -1; min-width: 0; }
         .payback-projection-heading {
           display: flex;
@@ -19372,12 +15484,6 @@
           font-size: 12px;
         }
         .payback-projection-metadata strong { color: var(--primary-text-color); }
-        .payback-projection-warning,
-        .payback-projection-note {
-          margin: 0;
-          font-size: 12px;
-          line-height: 1.45;
-        }
         .payback-projection-warning { color: var(--warning-color, #f6a623); }
         .payback-projection-note { color: var(--secondary-text-color); }
         .payback-projection-error {
@@ -19390,49 +15496,8 @@
           font-size: 13px;
         }
         .scee-section { grid-column: 1 / -1; }
-        .scee-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          min-width: 0;
-        }
         .scee-header .section-title { margin: 0; }
-        .scee-reference-controls {
-          display: grid;
-          grid-template-columns: var(--energy-control-height) minmax(110px, auto) var(--energy-control-height);
-          align-items: center;
-          gap: 6px;
-          flex: 0 0 auto;
-          min-width: 0;
-        }
-        .scee-reference-button {
-          width: var(--energy-control-height);
-          min-width: var(--energy-control-height);
-          min-height: var(--energy-control-height);
-          height: var(--energy-control-height);
-          padding: 0;
-          border-radius: 9px;
-        }
-        .scee-reference-select {
-          min-width: 0;
-          height: var(--energy-control-height);
-          padding: 0 28px 0 10px;
-          border: 1px solid var(--divider-color);
-          border-radius: 9px;
-          background: var(--card-background-color);
-          color: var(--primary-text-color);
-          font: inherit;
-          font-size: 12px;
-          font-weight: 600;
-        }
         .scee-metadata,
-        .scee-primary-grid,
-        .scee-secondary-grid {
-          display: grid;
-          gap: 10px;
-          min-width: 0;
-        }
         .scee-metadata { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .scee-primary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .scee-secondary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -19453,26 +15518,10 @@
         .scee-secondary-grid .field-value,
         .scee-extraction .field-value { text-align: left; }
         .scee-primary-grid .field-value { font-size: 17px; }
-        .scee-not-applicable {
-          padding: 14px 16px;
-          border: 1px solid var(--divider-color);
-          border-radius: 10px;
-          background: color-mix(in srgb, var(--secondary-text-color) 4%, transparent);
-          color: var(--secondary-text-color);
-          font-size: 13px;
-          font-weight: 500;
-        }
         .scee-extraction { display: grid; gap: 8px; min-width: 0; }
         .scee-alerts summary { cursor: pointer; font-size: 12px; font-weight: 700; }
         .scee-alert-list { display: grid; gap: 5px; margin: 8px 0 0; padding-left: 18px; }
         .scee-alert-list li { font-size: 12px; line-height: 1.4; }
-        .scee-error {
-          padding: 10px 12px;
-          border: 1px solid color-mix(in srgb, var(--error-color) 35%, var(--divider-color));
-          border-radius: 10px;
-          color: var(--primary-text-color);
-          font-size: 13px;
-        }
         .audit-quality { grid-column: 1 / -1; }
         .audit-result { display: grid; gap: 12px; min-width: 0; }
         .audit-header, .audit-entry-header {
@@ -20085,21 +16134,11 @@
           .energy-flow { padding: 13px; }
           .energy-flow-header { gap: 7px; }
           .energy-flow-heading .section-title { font-size: 17px; }
-          .energy-flow-diagram {
-            grid-template-columns: 1fr;
-            gap: 7px;
-            min-height: 0;
-          }
           .energy-flow-node { grid-template-columns: 85px minmax(0, 1fr); align-items: center; justify-items: stretch; }
           .energy-flow-icon { width: 81px; height: 81px; }
           .energy-flow-icon ha-icon { width: 39px; height: 39px; --mdc-icon-size: 39px; }
           .energy-flow-node-copy { justify-items: start; text-align: left; }
           .energy-flow-arrow { transform: rotate(90deg); line-height: 18px; }
-          .energy-flow-branch {
-            min-height: 24px;
-            color: var(--fluxo-rotulo);
-            text-align: center;
-          }
           .energy-flow-branch::after { content: "↓"; font-size: 20px; }
           .energy-flow-branch svg { display: none; }
           .energy-flow-destinations { gap: 6px; }
@@ -20146,17 +16185,9 @@
           .distribution-actions > button { flex: 1 1 145px; }
           .scee-header { align-items: flex-start; flex-direction: column; }
           .finance-header { align-items: flex-start; flex-direction: column; }
-          .finance-reference-controls {
-            grid-template-columns: var(--energy-control-height) minmax(0, 1fr) var(--energy-control-height);
-            width: 100%;
-          }
           .finance-summary,
           .finance-item-attributes { grid-template-columns: 1fr; }
           .finance-item-heading { grid-template-columns: 1fr; gap: 5px; }
-          .scee-reference-controls {
-            grid-template-columns: var(--energy-control-height) minmax(0, 1fr) var(--energy-control-height);
-            width: 100%;
-          }
           .scee-metadata,
           .scee-primary-grid,
           .scee-secondary-grid { grid-template-columns: 1fr; }
@@ -20481,20 +16512,7 @@
           color: var(--accent);
         }
 
-        .settings-source {
-          display: block;
-          margin-top: 4px;
-          color: var(--muted);
-          font-size: 11px;
-        }
         .settings-tag { margin-left: 8px; vertical-align: middle; }
-        .settings-add-vigencia {
-          display: flex;
-          flex-wrap: wrap;
-          align-items: flex-end;
-          gap: 12px;
-          padding-top: 6px;
-        }
         .settings-add-vigencia .settings-note { flex: 1 1 260px; margin: 0; }
         .settings-add-vigencia .settings-message { flex-basis: 100%; }
 
@@ -20816,11 +16834,6 @@
           border-color: color-mix(in srgb, var(--sev-crit) 55%, transparent);
           background: color-mix(in srgb, var(--sev-crit) 12%, transparent);
           color: var(--sev-crit);
-        }
-        .tag-info {
-          border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-          background: var(--accent-soft);
-          color: var(--accent);
         }
         .tag-log {
           border-color: var(--line-strong);
@@ -21656,24 +17669,7 @@
         }
         /* Campo, declarado e em vigor lado a lado: sem os tres juntos nao da
            para saber o que um "restaurar" traria de volta. */
-        .settings-field-row {
-          display: grid;
-          grid-template-columns:
-            minmax(180px, 260px) minmax(140px, 220px) minmax(140px, 220px)
-            minmax(0, 1fr);
-          align-items: end;
-          gap: 14px 18px;
-          padding-top: 14px;
-          border-top: 1px solid var(--line);
-        }
         .settings-field { display: grid; gap: 6px; min-width: 0; }
-        .settings-label {
-          color: var(--muted);
-          font-size: 9.5px;
-          font-weight: 700;
-          letter-spacing: .08em;
-          text-transform: uppercase;
-        }
         .settings-input {
           width: 100%;
           height: var(--energy-control-height);
@@ -21690,14 +17686,6 @@
           outline-offset: 1px;
         }
         .settings-value { display: grid; gap: 6px; min-width: 0; }
-        .settings-value strong {
-          padding: 7px 10px;
-          border: 1px solid var(--line);
-          border-radius: 5px;
-          background: color-mix(in srgb, var(--ink) 2%, transparent);
-          color: var(--ink-2);
-          font-size: 13px;
-        }
         .settings-value.current strong {
           border-color: color-mix(in srgb, var(--accent) 45%, transparent);
           background: var(--accent-soft);
@@ -21706,25 +17694,7 @@
         /* Uma unidade por bloco, um sensor por linha. O nome da unidade se
            repete acima de cada grupo porque a lista e longa e a entidade
            sozinha nao diz de quem e. */
-        .settings-sensor-unit {
-          display: grid;
-          gap: 10px;
-          padding-top: 14px;
-          border-top: 1px solid var(--line);
-        }
-        .settings-sensor-unit-name {
-          margin: 0;
-          color: var(--ink);
-          font-size: 13px;
-          font-weight: 700;
-        }
         /* A unidade fechada cabe numa linha; aberta, mostra o resto. */
-        .settings-unit {
-          border: 1px solid var(--line);
-          border-radius: 8px;
-          background: color-mix(in srgb, var(--ink) 1.5%, transparent);
-          overflow: hidden;
-        }
         .settings-unit.open { border-color: var(--line-strong); }
         /* A unidade em criacao ainda nao existe: a borda tracejada diz
            isso antes de qualquer texto. */
@@ -21736,30 +17706,8 @@
           padding: 0;
           border-top: 0;
         }
-        .settings-unit-head {
-          display: grid;
-          grid-template-columns: auto auto minmax(0, 1fr) auto;
-          align-items: center;
-          gap: 12px;
-          width: 100%;
-          padding: 10px 14px;
-          border: 0;
-          background: transparent;
-          color: inherit;
-          text-align: left;
-          cursor: pointer;
-        }
         .settings-unit-head:hover { background: color-mix(in srgb, var(--ink) 3%, transparent); }
         .settings-unit-caret { color: var(--muted); --mdc-icon-size: 20px; }
-        .settings-unit-photo {
-          display: grid;
-          place-items: center;
-          width: 56px;
-          height: 56px;
-          overflow: hidden;
-          border-radius: 8px;
-          background: var(--bg-inset);
-        }
         .settings-unit-photo.small { width: 38px; height: 38px; }
         .settings-unit-thumb { width: 100%; height: 100%; object-fit: cover; }
         .settings-unit-thumb.empty {
@@ -21769,36 +17717,10 @@
           --mdc-icon-size: 20px;
         }
         .settings-unit-title { display: grid; gap: 2px; min-width: 0; }
-        .settings-unit-name {
-          color: var(--ink);
-          font-size: 13.5px;
-          font-weight: 700;
-        }
         .settings-unit-summary { color: var(--muted); font-size: 11.5px; }
-        .settings-unit-body {
-          display: grid;
-          gap: 12px;
-          padding: 4px 14px 14px;
-          border-top: 1px solid var(--line);
-        }
         /* As duas marcacoes lado a lado. O texto que explicava cada uma
            empurrava o formulario para baixo e se repetia em toda unidade;
            agora ele aparece ao passar o mouse, onde e perguntado. */
-        .settings-unit-flags {
-          display: flex;
-          flex-wrap: wrap;
-          align-items: center;
-          gap: 18px;
-        }
-        .settings-flag {
-          position: relative;
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          color: var(--ink-2);
-          font-size: 12.5px;
-          cursor: pointer;
-        }
         /* Em repouso a caixa nao cria camada; ao abrir a dica ela sobe acima
            do que vem depois. Sem isto, a dica ficava atras dos botoes
            seguintes e o texto deles atravessava o balao. */
@@ -21812,42 +17734,6 @@
         .settings-flag.blocked > .settings-flag-mark { opacity: .6; }
         /* Uma marca discreta, do tamanho de um expoente: ela indica que ha
            explicacao, nao disputa a leitura do rotulo. */
-        .settings-flag-mark {
-          align-self: flex-start;
-          margin-top: -2px;
-          color: var(--muted);
-          --mdc-icon-size: 11px;
-        }
-        .settings-flag-hint {
-          position: absolute;
-          top: calc(100% + 6px);
-          /* Comeca alinhada com o campo e vai ate a largura da area, para o
-             texto caber em poucas linhas em vez de uma coluna estreita. */
-          left: 0;
-          z-index: 30;
-          width: 460px;
-          max-width: min(460px, 70vw);
-          box-sizing: border-box;
-          padding: 10px 12px;
-          border: 1px solid var(--line-strong);
-          border-radius: 6px;
-          background: var(--bg-inset);
-          box-shadow: 0 10px 26px rgba(0, 0, 0, .35);
-          color: var(--ink-2);
-          font-size: 11.5px;
-          line-height: 1.5;
-          text-align: justify;
-          text-wrap: pretty;
-          opacity: 0;
-          visibility: hidden;
-          transition: opacity .12s ease;
-          pointer-events: none;
-        }
-        .settings-flag:hover .settings-flag-hint,
-        .settings-flag:focus-within .settings-flag-hint {
-          opacity: 1;
-          visibility: visible;
-        }
         /* Dois deles sao rotulos e dois sao botoes — "Cor" e "Trocar foto"
            escondem um <input> que nao se estiliza. Na linha, porem, os quatro
            sao a mesma coisa, entao a regra vale para todos de uma vez: mesma
@@ -21887,16 +17773,6 @@
         }
         /* O quadradinho cabe dentro da altura do botao: sem limite, o seletor
            de cor do navegador cresce e empurra a caixa que o contem. */
-        .settings-unit-color-input {
-          width: 18px;
-          height: 18px;
-          flex: 0 0 auto;
-          padding: 0;
-          border: 0;
-          border-radius: 3px;
-          background: transparent;
-          cursor: pointer;
-        }
         .settings-unit-actions {
           display: flex;
           flex-wrap: wrap;
@@ -21926,12 +17802,6 @@
           background: color-mix(in srgb, var(--sev-crit) 12%, transparent);
         }
         /* As medicoes recuadas sob a unidade. */
-        .settings-unit-metrics {
-          display: grid;
-          gap: 10px;
-          padding-left: 10px;
-          border-left: 2px solid var(--line);
-        }
         /* Duas naturezas, dois blocos. O titulo e a nota dizem em que mundo
            cada um vive antes de qualquer campo aparecer. */
         .settings-metric-section {
@@ -21953,12 +17823,6 @@
         .settings-metric-section-note {
           color: var(--muted);
           font-size: 11.5px;
-        }
-        .settings-metric-actions {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          flex-shrink: 0;
         }
         /* Na linha, o botao e o campo do sensor sao a mesma peca — so muda o
            que cada um faz. Sem isto herdavam os 36px e o canto de 10px do
@@ -22000,14 +17864,6 @@
         }
         /* O que a unidade calcula por medir o que mede: consequencia, nao
            configuracao, e por isso vem depois e em tom menor. */
-        .settings-derived {
-          display: flex;
-          flex-wrap: wrap;
-          align-items: baseline;
-          gap: 8px;
-          padding-top: 6px;
-          border-top: 1px dashed var(--line);
-        }
         .settings-derived-label {
           color: var(--muted);
           font-size: 9.5px;
@@ -22051,18 +17907,6 @@
            em cima a direita — sempre na mesma coluna, encostado no campo — e a
            vigencia embaixo. Em fluxo livre, o selo caia depois do nome e
            mudava de lugar a cada fonte, conforme o comprimento do texto. */
-        .settings-source-legend {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) auto;
-          align-items: center;
-          gap: 2px 8px;
-          min-width: 0;
-        }
-        .settings-source-legend .settings-sensor-source {
-          grid-column: 1;
-          grid-row: 1;
-          overflow-wrap: anywhere;
-        }
         /* O selo acompanha o campo, nao a primeira linha da legenda: com
            altura propria e centrado nas duas linhas, ele fica na mesma faixa
            do retangulo do sensor em vez de flutuar acima dele. */
@@ -22078,10 +17922,6 @@
           border-radius: 5px;
           margin-left: 0;
           justify-self: end;
-        }
-        .settings-source-legend .settings-sensor-window {
-          grid-column: 1;
-          grid-row: 2;
         }
         .settings-source-legend .settings-sensor-window.alone { grid-row: 1; }
         /* Uma medicao instantanea nao tem vigencia: rotulo, campo e o botao. */
@@ -22175,11 +18015,6 @@
           border: 1px dashed var(--line-strong);
           border-radius: 6px;
         }
-        .settings-metric-label {
-          color: var(--ink-2);
-          font-size: 12.5px;
-          font-weight: 600;
-        }
         .settings-metric-pick { cursor: pointer; }
         @media (max-width: 640px) {
           .settings-metric-row.source,
@@ -22191,63 +18026,13 @@
            recuo e o que faz duas fontes se lerem como um historico de uma
            coisa so, em vez de duas medicoes diferentes. */
         .settings-sensor-metric { display: grid; gap: 6px; }
-        .settings-sensor-metric-head {
-          display: flex;
-          flex-wrap: wrap;
-          align-items: baseline;
-          gap: 8px;
-        }
-        .settings-sensor-count {
-          color: var(--muted);
-          font-size: 11px;
-        }
-        .settings-sensor-row {
-          display: grid;
-          gap: 6px;
-          margin-left: 12px;
-          padding: 10px 12px;
-          border: 1px solid var(--line);
-          border-left: 2px solid var(--line);
-          border-radius: 6px;
-          background: color-mix(in srgb, var(--ink) 1.5%, transparent);
-        }
         /* A fonte em uso ganha a marca; a encerrada recua de propósito, para
            a leitura cair primeiro no que vale hoje. */
         .settings-sensor-row.active {
           border-left-color: var(--accent);
         }
-        .settings-sensor-row.retired {
-          background: transparent;
-          opacity: .72;
-        }
-        .settings-sensor-head {
-          display: flex;
-          flex-wrap: wrap;
-          align-items: center;
-          gap: 8px;
-        }
         /* O uso vem primeiro e em destaque: e por ele que o sensor e
            reconhecido, nao pelo nome da entidade. */
-        .settings-sensor-usage {
-          color: var(--ink-2);
-          font-size: 12.5px;
-          font-weight: 600;
-        }
-        .settings-sensor-source {
-          color: var(--ink-2);
-          font-size: 12px;
-        }
-        .settings-sensor-window {
-          color: var(--muted);
-          font-size: 11.5px;
-          font-variant-numeric: tabular-nums;
-        }
-        .settings-sensor-declared {
-          overflow-wrap: anywhere;
-          color: var(--muted);
-          font-family: var(--font-mono);
-          font-size: 11.5px;
-        }
         .settings-sensor-row .settings-field { max-width: 420px; }
         /* Faixa ambar, nao vermelha: nao e erro, e consequencia. */
         .settings-note {
@@ -22256,22 +18041,7 @@
           font-size: 12.5px;
           line-height: 1.5;
         }
-        .settings-warning {
-          padding: 12px 16px;
-          border-left: 3px solid var(--sev-warn);
-          border-radius: 0 6px 6px 0;
-          background: color-mix(in srgb, var(--sev-warn) 9%, transparent);
-          color: var(--ink-2);
-          font-size: 12.5px;
-          line-height: 1.6;
-        }
         .settings-warning strong { color: var(--sev-warn); }
-        .settings-actions {
-          display: flex;
-          flex-wrap: wrap;
-          align-items: center;
-          gap: 12px;
-        }
         .settings-actions .primary {
           border-color: var(--accent);
           background: var(--accent-soft);
