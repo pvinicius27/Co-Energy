@@ -1276,9 +1276,21 @@
     }
 
     _unitIsBillingOnly(unit = this._selectedUnit) {
+      // A unidade que diz "sem medidor" e so fatura, qualquer que seja o
+      // catalogo. Depender so dele deixava o grafico de sensor — dia, mes,
+      // "sem dados de medicao" — numa unidade que nunca vai ter medicao.
+      const snapshot = this._displayData(this._key(unit))?.snapshot;
+      if (snapshot?.measured === false) return true;
       const cycles = this._cyclesCatalog(unit);
       return Array.isArray(cycles)
         && cycles.some((cycle) => cycle?.capability === "billing_only");
+    }
+
+    // Um ciclo que traz o consumo oficial da fatura — o que o historico de
+    // unidade so com fatura desenha.
+    _cycleHasOfficialConsumption(cycle) {
+      const valor = cycle?.official_consumption?.value;
+      return typeof valor === "number" && Number.isFinite(valor);
     }
 
     // MMM/AAAA vira MM/AA: uma lista de ciclos medidos cabe numa linha só.
@@ -4972,6 +4984,10 @@
         this._renderInvoiceUpdate();
         return;
       }
+      if (action === "invoice-delete-uc") {
+        this._deleteUcInvoices(button.dataset.uc, button.dataset.label ?? "esta UC");
+        return;
+      }
       if (action === "invoice-delete") {
         this._deleteInvoice(button.dataset.digest, button.dataset.label ?? "selecionada");
         return;
@@ -5716,7 +5732,7 @@
     _billingOnlyChartData(unit = this._selectedUnit) {
       if (!this._unitIsBillingOnly(unit)) return null;
       const cycle = this._selectedHistoryCycle(unit);
-      if (!cycle || cycle.capability !== "billing_only") return null;
+      if (!cycle || !this._cycleHasOfficialConsumption(cycle)) return null;
       const numericValue = cycle.official_consumption?.value;
       const points = [{
         start: cycle.billing_reference,
@@ -8417,8 +8433,11 @@
           ? `As ${faturas} da UC ${this._invoiceUcLabel(uc)} agora são de ${nome(unitId)}.`
           : `A UC ${this._invoiceUcLabel(uc)} ficou sem unidade.`;
         this._invoiceMessageKind = "ok";
-        // O modelo mudou: a lista de unidades da configuracao tambem.
+        // O modelo mudou: a lista de unidades da configuracao tambem — e o que
+        // cada unidade tem, que decide quais abas aparecem.
         this._modelConfig = null;
+        this._cyclesCatalogCache?.clear?.();
+        this._loadUnitCatalog({ force: true });
       } catch (error) {
         this._invoiceMessage = error?.message ?? "Não foi possível gravar.";
         this._invoiceMessageKind = "error";
@@ -8562,6 +8581,17 @@
 
     _renderInvoiceBills(uc) {
       const lista = this._element("div", "invoice-bill-list");
+      const digests = (uc.invoices ?? []).map((f) => f.digest).filter(Boolean);
+      if (digests.length > 1) {
+        const todas = this._button(
+          `Apagar as ${digests.length} faturas desta UC`,
+          "invoice-delete-uc", "button invoice-bill-delete",
+        );
+        todas.dataset.uc = uc.hash;
+        todas.dataset.label = `UC ${this._invoiceUcLabel(uc)}`;
+        todas.disabled = this._invoiceBusy;
+        lista.append(todas);
+      }
       for (const fatura of uc.invoices ?? []) {
         const item = this._element("div", "invoice-bill");
         const partes = [fatura.reference ?? "—"];
@@ -8580,6 +8610,39 @@
         lista.append(item);
       }
       return lista;
+    }
+
+    // Sobras de uma unidade excluida, ou PDFs de outra pessoa: apagar um a um
+    // era clicar e confirmar para cada mes. Uma confirmacao, todas da UC.
+    async _deleteUcInvoices(ucHash, rotulo) {
+      const uc = (this._invoices?.ucs ?? []).find((item) => item.hash === ucHash);
+      const digests = (uc?.invoices ?? []).map((f) => f.digest).filter(Boolean);
+      if (!digests.length) return;
+      if (!window.confirm(
+        `Apagar as ${digests.length} faturas da ${rotulo}? Para trazê-las de `
+        + "volta, basta ler os mesmos PDFs de novo.",
+      )) return;
+      this._invoiceBusy = true;
+      this._renderInvoiceUpdate();
+      let apagadas = 0;
+      try {
+        for (const digest of digests) {
+          const resposta = await this._hass.callWS({ type: INVOICE_DELETE_COMMAND, digest });
+          if (resposta?.data) this._invoices = resposta.data;
+          apagadas += 1;
+        }
+        this._invoiceMessage = `${apagadas} faturas da ${rotulo} apagadas.`;
+        this._invoiceMessageKind = "ok";
+      } catch (error) {
+        this._invoiceMessage = `${apagadas} de ${digests.length} apagadas; `
+          + (error?.message ?? "a seguinte falhou.");
+        this._invoiceMessageKind = "error";
+      } finally {
+        this._invoiceBusy = false;
+        this._cyclesCatalogCache?.clear?.();
+        this._loadUnitCatalog({ force: true });
+        this._renderInvoiceUpdate();
+      }
     }
 
     async _deleteInvoice(digest, rotulo) {
@@ -10608,7 +10671,9 @@
           this._renderIdentity(snapshot, data.cycle_energy?.cycle),
           this._renderBillEstimate(snapshot, data.prediction),
           this._renderMeasurements(snapshot),
-          this._renderConsumptionComposition(),
+          // "Entenda a conta" explica uma fatura: sem nenhuma, nao ha o que
+          // entender, e o quadro era so um aviso de ausencia.
+          this._unitHasOfficialHistory() ? this._renderConsumptionComposition() : null,
         ].filter(Boolean),
       );
 
@@ -12633,7 +12698,9 @@
       const billingOnly = this._unitIsBillingOnly();
       const header = this._element("header", "history-header");
       const heading = this._element("div", "history-heading");
-      heading.append(this._element("h3", "section-title", "Análise da curva"));
+      heading.append(this._element(
+        "h3", "section-title", billingOnly ? "Histórico das faturas" : "Análise da curva",
+      ));
       const modeSelector = this._element("div", "history-mode-selector");
       modeSelector.setAttribute("role", "group");
       modeSelector.setAttribute("aria-label", "Modo do histórico");
@@ -12850,7 +12917,7 @@
       const year = Number(this._historyReferences.year ?? this._currentHistoryReference());
       const cycles = (this._cyclesCatalog(unit) ?? [])
         .filter((cycle) => (
-          cycle?.capability === "billing_only"
+          this._cycleHasOfficialConsumption(cycle)
           && this._billingReferenceParts(cycle.billing_reference)?.year === year
         ))
         .sort((a, b) => (

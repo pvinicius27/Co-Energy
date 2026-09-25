@@ -60,6 +60,7 @@ from .billing import (
     BillingError,
     assign_bills_by_uc,
     bill_stats_by_uc,
+    declared_uc_hashes,
     get_bill_by_reference,
     parse_billing_reference,
 )
@@ -91,6 +92,7 @@ from .cycle_catalog_serializer import (
 )
 from .equatorial_adapter import (
     EquatorialAdapterError,
+    get_bill_uc_hash,
     get_unit_connection_type,
     load_equatorial_document,
     parse_equatorial_document,
@@ -693,10 +695,7 @@ async def _async_handle_get_units(
         # que mostrar, e pedi-los em chamadas separadas faria a primeira
         # resposta decidir com metade da informação.
         manager = runtime.invoice_manager
-        tem_fatura = bool(
-            (manager is not None and manager.stored.faturas)
-            or runtime.billing_json_path
-        )
+        tem_fatura = _has_owned_invoice(runtime)
         ajustes = (
             runtime.settings_manager.settings
             if runtime.settings_manager is not None
@@ -2172,6 +2171,27 @@ async def _async_save_model_change(
         )
         return None
     return atualizado
+
+
+def _has_owned_invoice(runtime: CoEnergyRuntime) -> bool:
+    """Se alguma unidade tem fatura — e não só se há fatura guardada.
+
+    Fatura de UC sem dono não aparece em unidade nenhuma. Contá-la liberava
+    as abas de uma instalação cuja única unidade não tinha fatura nem
+    sensor: sobras de uma unidade excluída, ou PDFs lidos antes de dizer de
+    quem é cada UC, abriam telas vazias. Ela continua na Extração de
+    faturas, esperando dono.
+    """
+    if runtime.billing_json_path and _billing_file_exists(runtime):
+        return True
+    manager = runtime.invoice_manager
+    if manager is None or not manager.stored.faturas:
+        return False
+    model = runtime.declared_model or runtime.model
+    donos: set[str] = set()
+    for hashes in declared_uc_hashes(model).values():
+        donos.update(hashes)
+    return any(get_bill_uc_hash(f) in donos for f in manager.stored.faturas)
 
 
 def _billing_file_exists(runtime: CoEnergyRuntime) -> bool:
