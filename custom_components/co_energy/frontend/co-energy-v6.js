@@ -837,6 +837,16 @@
     }
 
     connectedCallback() {
+      // Voltar de outra pagina do Home Assistant — a da integracao, onde se
+      // cria e exclui unidade e se aponta sensor — reencontra o painel como
+      // ficou. Sem recarregar, a unidade excluida la continuava aqui, com erro
+      // e sem saida, ate alguem apertar atualizar.
+      if (this._wasConnected) {
+        this._render();
+        this._refreshAll();
+        return;
+      }
+      this._wasConnected = true;
       this._render();
       this._loadSelected();
       this._loadOverviewUnits();
@@ -3135,7 +3145,9 @@
           // Um cartao adicionado sem lista de unidades nasce sem nenhuma
           // selecionada. O catalogo e quem sabe quais existem, entao e aqui
           // que a primeira escolha acontece — depois disso o operador manda.
-          if (!this._selectedUnit && units.length > 0) {
+          // A selecionada tambem pode ter sido excluida na pagina da
+          // integracao: ficar com ela era pedir dados de quem nao existe.
+          if (units.length > 0 && !units.some((u) => u.id === this._selectedUnit)) {
             this._selectedUnit = units[0].id;
           }
           // Quem gera vem dito pelo backend. Um catalogo sem geradora deixa o
@@ -4250,6 +4262,34 @@
       });
     }
 
+    // Tudo de novo, sem esperar o botao de atualizar: depois de ler ou apagar
+    // faturas, e ao voltar da pagina da integracao, o que existe pode ter
+    // mudado — unidades, sensores, donos de UC —, e com isso as abas.
+    _refreshAll() {
+      if (!this._hass || typeof this._hass.callWS !== "function") return;
+      this._modelConfig = null;
+      this._cyclesCatalogCache?.clear?.();
+      this._cyclesCatalogErrors?.clear?.();
+      if (this._page === "configuracao") {
+        this._loadSettings({ force: true });
+        this._loadSensors({ force: true });
+        this._loadModelConfig({ force: true });
+        this._loadInvoices({ force: true });
+      }
+      this._loadUnitCatalog({ force: true }).then((catalogo) => {
+        if (!this.isConnected || !catalogo?.length) return;
+        this._refresh();
+      });
+    }
+
+    _closeSettingsModal() {
+      this._settingsModal = null;
+      this._renderSettingsUpdate();
+      // Fechar o dialogo e o "pronto" de quem leu faturas ou mudou rateio e
+      // tarifa: o resto do painel se atualiza sem pedir nada.
+      this._refreshAll();
+    }
+
     _refresh() {
       if (this._page === "overview") {
         for (const unitId of this._unitIds()) {
@@ -5043,8 +5083,7 @@
         return;
       }
       if (action === "settings-modal-close") {
-        this._settingsModal = null;
-        this._renderSettingsUpdate();
+        this._closeSettingsModal();
         return;
       }
       if (action === "settings-save") {
@@ -6577,17 +6616,20 @@
       //   falta informar a capacidade existe e o dado nao chegou. Auditoria
       //                  sem fatura e isso: a aba fica e diz o que falta.
       //
-      // Auditoria e Visao geral ficam SEMPRE que ha unidade, porque as duas
-      // sabem dizer o que esta faltando. Sumi-las esconderia o caminho.
+      // Visao geral e Auditoria pedem os DOIS: sensor e fatura. A Visao geral
+      // junta o ciclo de cada unidade — datas da fatura, consumo do sensor —,
+      // e com um so dos dois mostrava apenas "Hoje" ou nada. A auditoria
+      // compara o medido com o cobrado: sem um dos lados, era uma tabela de
+      // espera. Sem elas o painel abre em Unidades & analise, e a
+      // Configuracao diz qual e o proximo passo.
       const podem = this._capabilities;
+      const completo = podem.measurement && podem.billing;
       return [
-        ["overview", "mdi:view-dashboard-outline", "Visão geral"],
+        ...(completo
+          ? [["overview", "mdi:view-dashboard-outline", "Visão geral"]]
+          : []),
         ["units", "mdi:home-city-outline", "Unidades & análise"],
-        // A auditoria compara o que o SENSOR mediu com o que a fatura cobrou.
-        // Sem sensor nenhum nao ha o que comparar, e a aba era uma tabela de
-        // "sem sensor". Com sensor e sem fatura ela fica: diz que espera a
-        // fatura, e isso e informacao.
-        ...(podem.measurement
+        ...(completo
           ? [["auditoria", "mdi:scale-balance", "Auditoria"]]
           : []),
         ...(podem.generation
@@ -6603,7 +6645,8 @@
     _pageLabel(page = this._page) {
       // Carregando, nao se sabe ainda o nome da aba: o do produto e o honesto.
       if (this._catalogPending) return "Gestão de Energia";
-      return this._pages().find((item) => item[0] === page)?.[2] ?? "Visão geral";
+      const abas = this._pages();
+      return (abas.find((item) => item[0] === page) ?? abas[0])?.[2] ?? "Gestão de Energia";
     }
 
     // O estado reduzido dito por extenso: o que falta, o que continua valendo
@@ -6714,7 +6757,8 @@
 
     _topBarContext(data) {
       if (this._page === "overview") {
-        return `${this._unitIds().length} unidades · cada uma no seu ciclo`;
+        const total = this._unitIds().length;
+        return `${total} ${total === 1 ? "unidade" : "unidades"} · cada uma no seu ciclo`;
       }
       if (this._page === "units") {
         const cycle = data?.cycle_energy?.cycle;
@@ -6771,8 +6815,10 @@
       // A aba aberta fica guardada entre recargas, e o conjunto de abas depende
       // do modelo: quem tinha Payback aberto e passou a usar um modelo sem
       // geracao voltaria para uma aba sem botao, sem saida e sem explicacao.
-      if (!this._pages().some(([id]) => id === this._page)) {
-        this._page = "overview";
+      // Sem Visao geral, a primeira aba que existe.
+      const abas = this._pages();
+      if (abas.length && !abas.some(([id]) => id === this._page)) {
+        this._page = abas[0][0];
       }
       if (this._page === "overview") page.append(this._renderOverview(data));
       if (this._page === "units") {
@@ -7874,7 +7920,7 @@
       // comecar. O convite vem antes dos ajustes, que ainda nao tem sobre o
       // que incidir.
       if (this._setupIncomplete) content.append(this._renderWelcome());
-      else content.append(this._renderIntegrationShortcut());
+      else content.append(this._renderNextStep() ?? this._renderIntegrationShortcut());
 
       // Cada assunto vira um cartao que abre o proprio dialogo. Empilhados na
       // pagina, os tres formularios competiam pela atencao e o operador lia
@@ -7952,6 +7998,61 @@
     // integracao do Home Assistant: la estao unidades, sensores, troca de
     // medidor, rateio, tarifa e investimento. Aqui fica o atalho, e o que so
     // a tela sabe fazer — ler a pasta de faturas do computador de quem usa.
+    // O que falta para o painel inteiro aparecer, dito como proximo passo.
+    // Sem isso quem apontou um sensor via duas abas e nao sabia que as
+    // faturas eram o que abria o resto.
+    _renderNextStep() {
+      const podem = this._capabilities;
+      const semDono = Number(this._invoices?.ucs_without_unit) || 0;
+      const lerFaturas = (texto, classe) => {
+        const botao = this._button(texto, "settings-open", classe);
+        botao.dataset.modal = "extracao";
+        botao.setAttribute("aria-haspopup", "dialog");
+        return botao;
+      };
+      let titulo;
+      let texto;
+      let acoes;
+      if (semDono) {
+        titulo = "Próximo passo: dizer de quem são as faturas";
+        texto = semDono === 1
+          ? "Há faturas de uma UC que ainda não é de nenhuma unidade. Enquanto "
+            + "ela não tiver dono, essas faturas não aparecem em lugar nenhum."
+          : `Há faturas de ${semDono} UCs que ainda não são de nenhuma unidade. `
+            + "Enquanto elas não tiverem dono, essas faturas não aparecem em "
+            + "lugar nenhum.";
+        acoes = [lerFaturas("Escolher a unidade", "button primary")];
+      } else if (podem.measurement && !podem.billing) {
+        titulo = "Próximo passo: ler as faturas";
+        texto = "O sensor já mede o consumo. Com as faturas vêm as datas do "
+          + "ciclo, a previsão da próxima conta, o preço estimado, a Visão "
+          + "geral e a auditoria, que compara o medido com o cobrado. Leia o "
+          + "máximo que tiver: cada fatura antiga vira um mês no histórico.";
+        acoes = [lerFaturas("Ler faturas", "button primary")];
+      } else if (podem.billing && !podem.measurement) {
+        titulo = "Próximo passo: apontar um sensor";
+        texto = "As faturas já dão o consumo oficial e o histórico por mês. "
+          + "Com um sensor de energia do Home Assistant vêm o consumo de hoje, "
+          + "os gráficos por hora, a previsão pelo consumo medido, a Visão "
+          + "geral e a auditoria.";
+        acoes = [
+          this._integrationLink("Apontar um sensor", "button primary"),
+          lerFaturas("Ler mais faturas", "button"),
+        ];
+      } else {
+        return null;
+      }
+      const painel = this._element("section", "panel welcome");
+      painel.append(
+        this._element("h3", "welcome-title", titulo),
+        this._element("p", "welcome-text", texto),
+      );
+      const linha = this._element("div", "settings-unit-actions");
+      linha.append(...acoes);
+      painel.append(linha);
+      return painel;
+    }
+
     _renderIntegrationShortcut() {
       const painel = this._element("section", "panel welcome");
       painel.append(this._element("h3", "welcome-title", "Configuração da integração"));
@@ -8010,12 +8111,16 @@
             ? `${tarifas[vigenteAtual]} · desde ${this._formatDate(vigenteAtual)}`
             : "—",
         ]] : []),
+        // Unidades se criam, editam e excluem na pagina da integracao. Excluir
+        // por aqui deixava o painel pedindo dados de quem nao existia mais,
+        // e dois caminhos para o mesmo lugar nao diziam qual valia.
         [
           "unidades",
           "mdi:home-group",
           "Unidades",
-          "Quais unidades existem, como se chamam e quais geram energia.",
+          "Criar, renomear, apontar sensores e excluir: na página da integração.",
           this._unitsLauncherSummary(),
+          "integracao",
         ],
         // A tela de sensores existia para adaptar um modelo que nao se podia
         // editar. Com o modelo no Home Assistant, editar o original substitui
@@ -8060,10 +8165,15 @@
           this._invoicesLauncherSummary(),
         ],
       ];
-      for (const [id, icone, titulo, descricao, valor] of definicoes) {
-        const botao = this._button("", "settings-open", "settings-launcher");
-        botao.dataset.modal = id;
-        botao.setAttribute("aria-haspopup", "dialog");
+      for (const [id, icone, titulo, descricao, valor, destino] of definicoes) {
+        let botao;
+        if (destino === "integracao") {
+          botao = this._integrationLink("", "settings-launcher settings-launcher-link");
+        } else {
+          botao = this._button("", "settings-open", "settings-launcher");
+          botao.dataset.modal = id;
+          botao.setAttribute("aria-haspopup", "dialog");
+        }
         const marca = this._element("ha-icon", "settings-launcher-icon");
         marca.setAttribute("icon", icone);
         const texto = this._element("div", "settings-launcher-copy");
@@ -8137,8 +8247,7 @@
       // proprio ouvinte, e so fecha quando o alvo e o fundo.
       overlay.addEventListener("click", (event) => {
         if (event.target !== overlay) return;
-        this._settingsModal = null;
-        this._renderSettingsUpdate();
+        this._closeSettingsModal();
       });
       const dialogo = this._element("div", "audit-modal audit-modal-wide settings-modal");
       dialogo.setAttribute("role", "dialog");
@@ -22062,6 +22171,11 @@
         }
         /* Cartao inteiro clicavel, e nao um botao dentro de um cartao: o alvo
            e do tamanho do que se le, que e como um item de menu se comporta. */
+        .settings-launcher-link {
+          color: inherit;
+          text-decoration: none;
+        }
+
         .settings-launcher {
           display: grid;
           grid-template-columns: 38px minmax(0, 1fr);
