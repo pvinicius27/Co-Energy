@@ -80,11 +80,10 @@
         "description": "O que você quer mudar? O painel se atualiza sozinho depois de salvar.",
         "menu_options": {
           "unidade_nova": "Adicionar unidade",
-          "unidade_editar": "Editar unidade (nome, foto, medidor e sensores)",
-          "faturas": "Ler faturas (no painel, aba Configuração)",
+          "unidade_editar": "Editar unidade (nome, foto e sensores)",
+          "faturas": "Extrair faturas da concessionária",
           "rateio": "Rateio dos créditos",
-          "tarifa": "Tarifa",
-          "investimento": "Investimento no sistema solar",
+          "investimento": "Payback do sistema solar (investimento e tarifa)",
           "horario": "Horário de corte das leituras",
           "unidade_excluir": "Excluir unidade"
         }
@@ -172,16 +171,16 @@
         }
       },
       "tarifa": {
-        "title": "Tarifa",
-        "description": "Tarifa de energia **sem impostos** (TE + TUSD), em R$/kWh. O payback usa esta tarifa para dar valor à energia compensada nos meses em que a fatura não a mostra.\n\n**Onde achar:** na sua fatura, na coluna *Tarifa unitária* da linha de consumo; ou na [lista de tarifas da ANEEL](https://dadosabertos.aneel.gov.br/dataset/tarifas-distribuidoras-energia-eletrica), pela sua distribuidora.\n\n**Houve reajuste?** Informe o novo valor com a data em que começou: cada tarifa vale da sua data até a véspera da próxima, e as anteriores continuam valendo para os meses delas. Para corrigir, escolha a mesma data; para apagar, deixe o valor em branco.\n\n**Informadas:**{intervalos}{falta}",
+        "title": "Payback do sistema solar — tarifa",
+        "description": "Tarifa de energia **sem impostos** (TE + TUSD), em R$/kWh. O payback usa esta tarifa para dar valor à energia compensada nos meses em que a fatura não a mostra.\n\n**Onde achar:** na sua fatura, na coluna *Tarifa unitária* da linha de consumo; ou na [lista de tarifas da ANEEL](https://dadosabertos.aneel.gov.br/dataset/tarifas-distribuidoras-energia-eletrica), pela sua distribuidora.\n\n**Houve reajuste?** Informe o novo valor com a data em que começou: cada tarifa vale da sua data até a véspera da próxima, e as anteriores continuam valendo para os meses delas. Para corrigir, escolha a mesma data; para apagar, deixe o valor em branco.\n\nSó veio mexer no investimento? Deixe como está e salve.\n\n**Informadas:**{intervalos}{falta}",
         "data": {
           "vigencia": "Vale a partir de",
           "valor": "Tarifa sem impostos (R$/kWh)"
         }
       },
       "investimento": {
-        "title": "Investimento no sistema solar",
-        "description": "Quanto custou o sistema solar e quando foi pago. É o que permite calcular o payback.",
+        "title": "Payback do sistema solar",
+        "description": "Quanto custou o sistema solar e quando foi pago: é o que o payback tem a recuperar. A próxima tela é a tarifa.\n\nSó veio mexer na tarifa? Clique em Próximo sem mudar nada.",
         "data": {
           "valor": "Valor pago (R$)",
           "mes": "Data do pagamento",
@@ -212,6 +211,7 @@
       "swap_refused": "A troca não foi aceita: a data precisa ser posterior ao início do medidor atual, e o sensor novo precisa ser diferente do atual.",
       "period_invalid": "Informe a data do pagamento.",
       "amount_invalid": "Informe um valor maior que zero, por exemplo 25000,00.",
+      "tariff_date_required": "Informe a data em que essa tarifa começou a valer.",
       "tariff_invalid": "Informe a tarifa em R$/kWh, maior que zero, por exemplo 0,65.",
       "history_keep": "Esta grandeza já teve troca de medidor e não pode ficar sem sensor: o registro dos medidores anteriores depende dela.",
       "previous_incomplete": "Para registrar o medidor anterior, preencha os três campos: grandeza, sensor anterior e até quando.",

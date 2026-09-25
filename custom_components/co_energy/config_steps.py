@@ -44,7 +44,6 @@ MENU_ORDER = (
     "unidade_editar",
     "faturas",
     "rateio",
-    "tarifa",
     "investimento",
     "horario",
     "unidade_excluir",
@@ -62,6 +61,7 @@ ERROR_SWAP_WHEN = "swap_when_invalid"
 ERROR_PERIOD_INVALID = "period_invalid"
 ERROR_AMOUNT_INVALID = "amount_invalid"
 ERROR_TARIFF_INVALID = "tariff_invalid"
+ERROR_TARIFF_DATE_REQUIRED = "tariff_date_required"
 ERROR_HISTORY_KEEP = "history_keep"
 ERROR_PREVIOUS_INCOMPLETE = "previous_incomplete"
 ERROR_PREVIOUS_NEEDS_CURRENT = "previous_needs_current"
@@ -356,13 +356,12 @@ def menu_options(
         # primeira unidade: sem ela, a fatura lida nao teria de quem ser.
         "faturas": tem_unidade,
         "rateio": podem["distribution"],
-        # A tarifa informada so serve ao payback: da valor a energia
-        # compensada nos meses em que a fatura nao imprime a tarifa. A
-        # previsao do ciclo ja usa a da ultima fatura. Por isso ela anda com
-        # o investimento, e nao com o sensor.
-        "tarifa": podem["generation"],
         # O horário de corte alinha a data da fatura com a leitura do
         # sensor: sem sensor, não age sobre nada.
+        # Investimento e tarifa sao um item so: a tarifa informada so serve
+        # ao payback — da valor a energia compensada nos meses em que a
+        # fatura nao a imprime; a previsao do ciclo usa a da ultima fatura.
+        # Solta no menu, "Tarifa" parecia servir para tudo.
         "investimento": podem["generation"],
         "horario": podem["measurement"],
         "unidade_excluir": tem_unidade,

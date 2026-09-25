@@ -80,11 +80,10 @@
         "description": "What do you want to change? The panel refreshes by itself after saving.",
         "menu_options": {
           "unidade_nova": "Add a unit",
-          "unidade_editar": "Edit a unit (name, picture, meter and sensors)",
-          "faturas": "Read bills (in the panel, Configuração tab)",
+          "unidade_editar": "Edit a unit (name, picture and sensors)",
+          "faturas": "Extract utility bills",
           "rateio": "Credit distribution",
-          "tarifa": "Tariff",
-          "investimento": "Solar system investment",
+          "investimento": "Solar payback (investment and tariff)",
           "horario": "Reading boundary time",
           "unidade_excluir": "Delete a unit"
         }
@@ -172,16 +171,16 @@
         }
       },
       "tarifa": {
-        "title": "Tariff",
-        "description": "Energy tariff **before taxes** (TE + TUSD), per kWh. The payback uses it to value the compensated energy in months when the bill does not show it.\n\n**Where to find it:** on your bill, in the *Tarifa unitária* column of the consumption line; or in the [ANEEL tariff list](https://dadosabertos.aneel.gov.br/dataset/tarifas-distribuidoras-energia-eletrica).\n\n**Was there an adjustment?** Enter the new value with the date it started: each tariff applies from its date until the day before the next one. To fix one, pick the same date; to delete it, leave the value blank.\n\n**Entered:**{intervalos}{falta}",
+        "title": "Solar payback — tariff",
+        "description": "Energy tariff **before taxes** (TE + TUSD), per kWh. The payback uses it to value the compensated energy in months when the bill does not show it.\n\n**Where to find it:** on your bill, in the *Tarifa unitária* column of the consumption line; or in the [ANEEL tariff list](https://dadosabertos.aneel.gov.br/dataset/tarifas-distribuidoras-energia-eletrica).\n\n**Was there an adjustment?** Enter the new value with the date it started: each tariff applies from its date until the day before the next one. To fix one, pick the same date; to delete it, leave the value blank.\n\nOnly here for the investment? Leave it as it is and save.\n\n**Entered:**{intervalos}{falta}",
         "data": {
           "vigencia": "Applies from",
           "valor": "Tariff before taxes (per kWh)"
         }
       },
       "investimento": {
-        "title": "Solar system investment",
-        "description": "How much the solar system cost and when it was paid. This is what enables the payback.",
+        "title": "Solar payback",
+        "description": "How much the solar system cost and when it was paid: it is what the payback has to recover. The next screen is the tariff.\n\nOnly here for the tariff? Click Next without changing anything.",
         "data": {
           "valor": "Amount paid",
           "mes": "Payment date",
@@ -212,6 +211,7 @@
       "swap_refused": "The swap was refused: the date must be after the current meter started, and the new sensor must differ from the current one.",
       "period_invalid": "Enter the payment date.",
       "amount_invalid": "Enter an amount greater than zero, e.g. 25000.00.",
+      "tariff_date_required": "Enter the date this tariff started to apply.",
       "tariff_invalid": "Enter the tariff per kWh, greater than zero, e.g. 0.65.",
       "history_keep": "This quantity already had a meter replaced and cannot be left without a sensor: the record of previous meters depends on it.",
       "previous_incomplete": "To record the previous meter, fill in the three fields: quantity, previous sensor and until when.",

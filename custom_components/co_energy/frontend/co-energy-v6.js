@@ -3105,6 +3105,12 @@
       return this._units().map((unidade) => unidade.id);
     }
 
+    // Nenhuma unidade declara medidor: o caminho e so a fatura.
+    get _noUnitHasMeter() {
+      const lista = Array.isArray(this._unitCatalog) ? this._unitCatalog : [];
+      return lista.length > 0 && lista.every((unidade) => unidade.measured === false);
+    }
+
     _units() {
       if (Array.isArray(this._unitCatalog) && this._unitCatalog.length > 0) {
         return this._unitCatalog;
@@ -3147,6 +3153,8 @@
               label: item.name,
               role: item.role ?? null,
               color: typeof item.color === "string" ? item.color : null,
+              // Quem declarou "sem medidor" nao deve ouvir "aponte um sensor".
+              measured: item.measured !== false,
             });
           });
           this._unitCatalog = Object.freeze(units);
@@ -7989,18 +7997,25 @@
         semUnidade
           ? "Uma unidade é cada lugar que recebe uma conta de luz: uma casa, um "
             + "apartamento, um sítio. Crie a primeira na página da integração."
-          : "A unidade já existe, mas ainda não há sensor nem fatura para ela. "
-            + "Qualquer um dos dois basta: assim que um deles chegar, as outras "
-            + "abas aparecem sozinhas.",
+          : this._noUnitHasMeter
+            // A unidade foi declarada sem medidor: oferecer "aponte um
+            // sensor" era mandar a pessoa por um caminho que ela ja fechou.
+            ? "A unidade existe e é acompanhada pela conta de luz. Leia as "
+              + "faturas: assim que a primeira chegar, as outras abas aparecem "
+              + "sozinhas."
+            : "A unidade já existe, mas ainda não há sensor nem fatura para ela. "
+              + "Qualquer um dos dois basta: assim que um deles chegar, as outras "
+              + "abas aparecem sozinhas.",
       ));
 
       const passos = this._element("ul", "welcome-steps");
+      const soFatura = !semUnidade && this._noUnitHasMeter;
       const definicoes = [
-        [
+        ...(soFatura ? [] : [[
           "Tem medidor no Home Assistant? Aponte o sensor",
-          "Em Configurar, na página da integração: \"Adicionar sensor à "
-          + "unidade\". Com o sensor vêm o consumo, a previsão e os gráficos.",
-        ],
+          "Em Configurar, na página da integração: \"Editar unidade\". Com o "
+          + "sensor vêm o consumo, a previsão e os gráficos.",
+        ]]),
         [
           "Só tem a conta de luz? Leia as faturas",
           "Em \"Extração de faturas\", aqui mesmo: escolha a pasta com os PDFs. "
@@ -8017,14 +8032,25 @@
         passos.append(passo);
       }
       painel.append(passos);
+      if (soFatura) {
+        painel.append(this._element(
+          "p", "welcome-text",
+          "Tem medidor no Home Assistant? Marque em Configurar › Editar unidade, "
+          + "na página da integração.",
+        ));
+      }
 
       const acoes = this._element("div", "settings-unit-actions");
-      acoes.append(this._integrationLink(
-        semUnidade ? "Criar a primeira unidade" : "Apontar um sensor",
-        "button primary",
-      ));
+      if (!soFatura) {
+        acoes.append(this._integrationLink(
+          semUnidade ? "Criar a primeira unidade" : "Apontar um sensor",
+          "button primary",
+        ));
+      }
       if (!semUnidade) {
-        const faturas = this._button("Ler faturas", "settings-open", "button");
+        const faturas = this._button(
+          "Ler faturas", "settings-open", soFatura ? "button primary" : "button",
+        );
         faturas.dataset.modal = "extracao";
         faturas.setAttribute("aria-haspopup", "dialog");
         acoes.append(faturas);
@@ -8068,7 +8094,7 @@
           + "geral e a auditoria, que compara o medido com o cobrado. Leia o "
           + "máximo que tiver: cada fatura antiga vira um mês no histórico.";
         acoes = [lerFaturas("Ler faturas", "button primary")];
-      } else if (podem.billing && !podem.measurement) {
+      } else if (podem.billing && !podem.measurement && !this._noUnitHasMeter) {
         titulo = "Próximo passo: apontar um sensor";
         texto = "As faturas já dão o consumo oficial e o histórico por mês. "
           + "Com um sensor de energia do Home Assistant vêm o consumo de hoje, "
@@ -8164,22 +8190,19 @@
         // Sem unidade que gera, nao ha payback, e perguntar quanto custou o
         // sistema solar de quem nao tem um so confunde. Quem marcar uma
         // unidade como geradora ve o cartao aparecer.
+        // Investimento e tarifa num cartao so, como na integracao: a tarifa
+        // informada so serve ao payback — a previsao do ciclo usa a da ultima
+        // fatura. Solta, parecia servir para tudo.
         ...(dados.solar_investment?.applies ? [[
           "investimento",
           "mdi:solar-power-variant",
-          "Investimento no sistema solar",
-          "Quanto custou e quando foi pago. É o que o payback tem a recuperar.",
-          this._investmentLauncherSummary(dados),
-        ], [
-          // A tarifa informada so serve ao payback — a previsao do ciclo usa
-          // a da ultima fatura. Por isso anda com o investimento.
-          "tarifa",
-          "mdi:cash-multiple",
-          "Tarifa sem impostos",
-          "Por vigência. É com ela que o payback dá valor à energia compensada.",
-          vigenteAtual
-            ? `${tarifas[vigenteAtual]} · desde ${this._formatDate(vigenteAtual)}`
-            : "não informada",
+          "Payback do sistema solar",
+          "Quanto custou e a tarifa sem impostos que dá valor à energia compensada.",
+          `${this._investmentLauncherSummary(dados)} · tarifa ${
+            vigenteAtual
+              ? `${tarifas[vigenteAtual]} desde ${this._formatDate(vigenteAtual)}`
+              : "não informada"
+          }`,
         ]] : []),
         // O rateio so existe com geradora E mais de uma unidade: numa casa
         // sozinha, distribuir credito e devolve-lo a quem o gerou.
@@ -10342,6 +10365,10 @@
     _healthCardRows(unidade) {
       const linhas = [];
       const sensores = unidade.sensors ?? [];
+      const fatura = unidade.invoice ?? {};
+      // Sem fatura nao ha ciclo: falar em "cobertura do ciclo" ou em hora
+      // fechada so confundia quem ainda nao leu nenhuma.
+      const temFatura = Boolean(fatura.available || fatura.invoice_status);
       if (sensores.length) {
         const ok = sensores.filter((sensor) => sensor.status === "ok").length;
         const mudo = (unidade.findings ?? []).some((item) => item.code === "meter_silent");
@@ -10352,7 +10379,9 @@
           ok < sensores.length || mudo ? "crit" : "ok",
         ]);
         const pior = this._healthWorstSeries(unidade);
-        if (pior) {
+        if (!temFatura) {
+          linhas.push(["Cobertura do ciclo", "sem fatura, ainda não há ciclo", ""]);
+        } else if (pior) {
           const horas = pior.serie.gaps.reduce((total, lacuna) => total + lacuna.hours, 0);
           linhas.push([
             "Cobertura do ciclo",
@@ -10365,9 +10394,8 @@
       } else {
         linhas.push(["Medidor", "sem medidor · só fatura", ""]);
       }
-      const fatura = unidade.invoice ?? {};
       if (!this._dataHealth?.billing_available) {
-        linhas.push(["Fatura", "arquivo indisponível", "warn"]);
+        linhas.push(["Fatura", "faturas indisponíveis", "warn"]);
       } else if (fatura.invoice_status) {
         const atrasada = fatura.invoice_status === "late";
         linhas.push([
@@ -10379,7 +10407,7 @@
       } else if (fatura.available) {
         linhas.push(["Fatura", `${fatura.latest_reference} recebida`, "ok"]);
       } else {
-        linhas.push(["Fatura", "nenhuma no arquivo", "warn"]);
+        linhas.push(["Fatura", "nenhuma lida ainda", ""]);
       }
       return linhas;
     }
@@ -10467,10 +10495,25 @@
       const informativos = itens.filter(([, item]) => item.severity === "info");
       painel.append(this._element("div", "console-head", "O que precisa de atenção"));
       if (acao.length === 0) {
+        // So se afirma o que foi conferido. Sem fatura nao ha ciclo nem prazo,
+        // e dizer "ciclos sem lacuna" e "faturas no prazo" era inventar.
+        const comSensor = unidades.some((unidade) => unidade.sensors?.length);
+        const comFatura = unidades.some((unidade) => (
+          unidade.invoice?.available || unidade.invoice?.invoice_status
+        ));
+        const conferido = [
+          ...(comSensor ? ["sensores respondendo"] : []),
+          ...(comSensor && comFatura ? ["ciclos sem lacuna no Recorder"] : []),
+          ...(comFatura ? ["faturas dentro do prazo"] : []),
+        ];
+        const frase = conferido.length > 1
+          ? `${conferido.slice(0, -1).join(", ")} e ${conferido.at(-1)}`
+          : conferido[0] ?? "";
         painel.append(this._element(
           "p", "console-empty",
-          "Nada fora do normal: sensores respondendo, ciclos sem lacuna no Recorder"
-          + " e faturas dentro do prazo.",
+          (frase ? `Nada fora do normal: ${frase}.` : "Nada fora do normal.")
+          + (comFatura ? "" : " Ciclos e faturas entram aqui quando a primeira"
+            + " fatura for lida."),
         ));
       } else {
         const lista = this._element("div", "console-list");
@@ -10510,7 +10553,10 @@
         this._element("strong", "", unidade.name),
         this._healthTag(unidade.status),
         this._element("span", "health-detail-hint", unidade.sensors?.length
-          ? `${unidade.sensors.length} sensores · ${ciclos} ${ciclos === 1 ? "ciclo" : "ciclos"} sem fatura`
+          ? `${unidade.sensors.length} ${unidade.sensors.length === 1 ? "sensor" : "sensores"}`
+            + (unidade.invoice?.available || unidade.invoice?.invoice_status
+              ? ` · ${ciclos} ${ciclos === 1 ? "ciclo" : "ciclos"} sem fatura`
+              : " · nenhuma fatura lida")
           : "sem medidor · acompanhada só pela fatura"),
       );
       const corpo = this._element("div", "health-detail-body");
@@ -11366,7 +11412,12 @@
         selector.append(button);
       }
 
-      toolbar.append(selector, this._renderBillingReferenceControl());
+      toolbar.append(selector);
+      // Sem fatura nao ha referencia fechada a escolher: o seletor so dizia
+      // "Indisponivel". Ele aparece com a primeira fatura.
+      if (this._closedBillingReferences(this._selectedUnit).length > 0) {
+        toolbar.append(this._renderBillingReferenceControl());
+      }
       return toolbar;
     }
 
@@ -13749,17 +13800,26 @@
       );
 
       const cycleSummary = this._element("div", "identity-cycle");
-      cycleSummary.append(
-        this._field(
-          "Estado do ciclo",
-          this._translateCycleStatus(cycle?.status ?? "—"),
-        ),
-        this._field("Início atual", this._formatDate(cycle?.current_start)),
-        this._field(
-          "Próxima leitura",
-          this._formatDate(cycle?.expected_next_reading),
-        ),
-      );
+      // Sem fatura nao existe ciclo: "Sem base", inicio e proxima leitura
+      // vazios eram tres campos para dizer a mesma ausencia.
+      const semCiclo = !cycle?.current_start && !cycle?.expected_next_reading;
+      if (semCiclo) {
+        cycleSummary.append(this._field(
+          "Ciclo", "Aparece quando a primeira fatura for lida",
+        ));
+      } else {
+        cycleSummary.append(
+          this._field(
+            "Estado do ciclo",
+            this._translateCycleStatus(cycle?.status ?? "—"),
+          ),
+          this._field("Início atual", this._formatDate(cycle?.current_start)),
+          this._field(
+            "Próxima leitura",
+            this._formatDate(cycle?.expected_next_reading),
+          ),
+        );
+      }
       section.append(media, copy, cycleSummary);
       return section;
     }

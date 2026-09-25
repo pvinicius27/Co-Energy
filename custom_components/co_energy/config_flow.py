@@ -336,7 +336,8 @@ _KNOWN_ERRORS = {
     passos.ERROR_SECOND_GENERATOR, passos.ERROR_TIME_INVALID,
     passos.ERROR_COLOR_INVALID, passos.ERROR_SWAP_WHEN,
     passos.ERROR_PERIOD_INVALID, passos.ERROR_AMOUNT_INVALID,
-    passos.ERROR_TARIFF_INVALID, passos.ERROR_HISTORY_KEEP,
+    passos.ERROR_TARIFF_INVALID, passos.ERROR_TARIFF_DATE_REQUIRED,
+    passos.ERROR_HISTORY_KEEP,
     passos.ERROR_PREVIOUS_INCOMPLETE, passos.ERROR_PREVIOUS_NEEDS_CURRENT,
     passos.ERROR_PREVIOUS_SAME,
 }
@@ -746,8 +747,14 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
         errors: dict[str, str] = {}
         if user_input is not None:
             try:
-                vigencia = date.fromisoformat(str(user_input.get(F_VIGENCIA)))
                 bruto = user_input.get(F_VALOR)
+                # Esta tela vem depois do investimento: quem so veio mexer
+                # nele passa por aqui sem informar nada, e isso nao e erro.
+                if not user_input.get(F_VIGENCIA):
+                    if bruto not in (None, ""):
+                        raise ValueError(passos.ERROR_TARIFF_DATE_REQUIRED)
+                    return self._finish()
+                vigencia = date.fromisoformat(str(user_input.get(F_VIGENCIA)))
                 if bruto in (None, ""):
                     atuais.pop(vigencia, None)
                 else:
@@ -775,7 +782,7 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
             data_schema=vol.Schema({
                 # Abre com a tarifa vigente: quem veio conferir já a vê, e quem
                 # veio informar uma nova só troca a data e o valor.
-                vol.Required(
+                vol.Optional(
                     F_VIGENCIA,
                     description={
                         "suggested_value": vigente[0].isoformat() if vigente else None
@@ -817,7 +824,9 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
             try:
                 if user_input.get(F_LIMPAR):
                     await self._async_update_settings(solar_investment=None)
-                else:
+                    return self._finish()
+                # Sem valor, nada muda aqui: quem veio so pela tarifa segue.
+                if user_input.get(F_VALOR) not in (None, ""):
                     await self._async_update_settings(solar_investment={
                         "amount": passos.decimal_text(
                             user_input.get(F_VALOR), passos.ERROR_AMOUNT_INVALID
@@ -829,9 +838,13 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
             except ValueError as error:
                 errors["base"] = _error_key(error)
             else:
-                return self._finish()
+                # Mesmo item, segunda tela: a tarifa que o payback usa. O
+                # investimento ja esta salvo, e a tela da tarifa ve a data
+                # dele para dizer se falta tarifa em algum mes.
+                return await self.async_step_tarifa()
         return self.async_show_form(
             step_id="investimento",
+            last_step=False,
             data_schema=vol.Schema({
                 vol.Optional(
                     F_VALOR,
