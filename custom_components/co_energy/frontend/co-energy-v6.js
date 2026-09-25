@@ -821,6 +821,14 @@
       const hadValidHass = this._hass && typeof this._hass.callWS === "function";
       const hasValidHass = hass && typeof hass.callWS === "function";
       this._hass = hass;
+      // O CSS acompanha o tema sozinho; os graficos, nao — recebem a cor ja
+      // resolvida. Trocar de tema redesenha, para eles lerem as cores novas.
+      const tema = `${hass?.themes?.theme ?? ""}|${hass?.themes?.darkMode ? "escuro" : "claro"}`;
+      if (this._themeKey !== undefined && this._themeKey !== tema && hadValidHass) {
+        this._themeKey = tema;
+        this._render();
+      }
+      this._themeKey = tema;
       // Depois da primeira carga, cada `hass` novo agenda so a releitura das
       // medicoes instantaneas. O resto da tela responde a ciclo e fatura, que
       // nao mudam de segundo em segundo.
@@ -12334,9 +12342,9 @@
         animationDuration: 420,
         tooltip: {
           trigger: "item",
-          backgroundColor: "#1a1d21",
-          borderColor: "rgba(255,255,255,.14)",
-          textStyle: { color: "#f2f5f8", fontSize: 12 },
+          backgroundColor: this._chartSurface(),
+          borderColor: this._themeAlpha("var(--ink)", .14, "rgba(255,255,255,.14)"),
+          textStyle: { color: this._chartInkStrong(), fontSize: 12 },
           formatter: (params) => (params.dataType === "edge"
             ? `${params.data.source} → ${params.data.target}<br/><b>${formatar(params.data.value)}</b>`
             : `${params.name}<br/><b>${formatar(params.value)}</b>`),
@@ -12364,7 +12372,7 @@
           // energia sem precisar ler rotulo nenhum.
           lineStyle: { color: "source", curveness: .55, opacity: .32 },
           label: {
-            color: "#d7dee6",
+            color: this._chartInk(),
             fontSize: 11.5,
             fontFamily: "Inter, Roboto, system-ui, sans-serif",
             // Nome e valor recebem estilos diferentes, entao o rotulo e escrito
@@ -12378,12 +12386,12 @@
             ),
             rich: {
               nome: {
-                color: "#d7dee6",
+                color: this._chartInk(),
                 fontSize: 11.5,
                 fontFamily: "Inter, Roboto, system-ui, sans-serif",
               },
               valor: {
-                color: "#f2f5f8",
+                color: this._chartInkStrong(),
                 fontSize: 11.5,
                 fontWeight: 700,
                 fontFamily: "Inter, Roboto, system-ui, sans-serif",
@@ -14789,8 +14797,8 @@
           z: 3,
           // Branca nos dois modos: e o mesmo caminho, e trocar de cor com o
           // sinal faria a linha dizer o que o preenchimento ja diz.
-          itemStyle: { color: "#dfe3e8" },
-          lineStyle: { width: 2, color: "#dfe3e8" },
+          itemStyle: { color: this._chartInkStrong() },
+          lineStyle: { width: 2, color: this._chartInkStrong() },
           data: valores.map((valor, indice) => {
             const ponto = summary.points[indice - 1];
             return ponto?.partial
@@ -14933,7 +14941,7 @@
         symbol: "circle",
         symbolSize: 6,
         lineStyle: { width: 2 },
-        itemStyle: { color: "#d7dbe0" },
+        itemStyle: { color: this._chartInkStrong() },
         // A curva e a meta são o quadro de referência: continuam nítidas quando
         // uma unidade é destacada, senão o gráfico perde a escala no hover.
         blur: { lineStyle: { opacity: 1 }, itemStyle: { opacity: 1 } },
@@ -15044,7 +15052,7 @@
           decal: {
             symbol: "rect",
             symbolSize: 1,
-            color: "rgba(255, 255, 255, .30)",
+            color: this._themeAlpha("var(--ink)", .30, "rgba(255, 255, 255, .30)"),
             dashArrayX: [1, 0],
             dashArrayY: [2, 4],
             rotation: -Math.PI / 4,
@@ -15092,7 +15100,7 @@
         });
       const paid = point.paid === null ? null : point.paid;
       const without = paid === null ? null : paid + point.saved;
-      const rule = '<div style="border-top:1px solid rgba(255,255,255,.16);margin:5px 0"></div>';
+      const rule = `<div style="border-top:1px solid ${this._themeAlpha("var(--ink)", .16, "rgba(255,255,255,.16)")};margin:5px 0"></div>`;
       const waiting = point.missingUnits.map((unitId) => this._unitLabel(unitId));
       const generatorPending = point.missingUnits.includes(owner ?? this._generator);
       return [
@@ -15189,11 +15197,38 @@
       return `rgb(${channel(0)}, ${channel(1)}, ${channel(2)})`;
     }
 
-    // Tokens de grafico, espelhando os do CSS. Ficam como constantes porque o
-    // ECharts recebe cor resolvida, nao variavel CSS.
-    _chartInk() { return "#aeb7c2"; }
-    _chartLine() { return "rgba(255, 255, 255, .10)"; }
-    _chartSurface() { return "#1a1d21"; }
+    // Tokens de grafico, lidos do tema na hora de desenhar. O ECharts recebe
+    // cor resolvida, nao variavel CSS: um elemento de prova, escondido, pede a
+    // variavel ao navegador e devolve a cor ja calculada. Eram constantes da
+    // paleta escura, e no tema claro o eixo e a legenda saiam quase brancos.
+    _themeColor(expressao, fallback, propriedade = "color") {
+      const raiz = this.shadowRoot;
+      if (!raiz || typeof getComputedStyle !== "function") return fallback;
+      if (!this._colorProbe || !this._colorProbe.isConnected) {
+        this._colorProbe = document.createElement("span");
+        this._colorProbe.style.display = "none";
+        raiz.append(this._colorProbe);
+      }
+      const prova = this._colorProbe;
+      prova.style[propriedade] = "";
+      prova.style[propriedade] = expressao;
+      const valor = getComputedStyle(prova)[propriedade];
+      return this._parseColor(valor) ? valor : fallback;
+    }
+
+    // A mesma cor, com transparencia. Linhas e bordas saem do texto do tema.
+    _themeAlpha(expressao, alfa, fallback) {
+      const cor = this._parseColor(this._themeColor(expressao, fallback));
+      return cor ? `rgba(${cor[0]}, ${cor[1]}, ${cor[2]}, ${alfa})` : fallback;
+    }
+
+    _chartInk() { return this._themeColor("var(--ink-2)", "#aeb7c2"); }
+    _chartInkStrong() { return this._themeColor("var(--ink)", "#f2f5f8"); }
+    _chartMuted() { return this._themeColor("var(--ink-2)", "#7c8592"); }
+    _chartLine() { return this._themeAlpha("var(--ink)", .10, "rgba(255, 255, 255, .10)"); }
+    _chartSurface() {
+      return this._themeColor("var(--bg-panel)", "#1a1d21", "backgroundColor");
+    }
 
     _chartBase() {
       return {
@@ -15208,8 +15243,8 @@
     _chartTooltipSkin() {
       return {
         backgroundColor: this._chartSurface(),
-        borderColor: "rgba(255, 255, 255, .14)",
-        textStyle: { color: "#f2f5f8", fontSize: 12 },
+        borderColor: this._themeAlpha("var(--ink)", .14, "rgba(255, 255, 255, .14)"),
+        textStyle: { color: this._chartInkStrong(), fontSize: 12 },
         extraCssText: "border-radius: 6px; box-shadow: 0 12px 34px rgba(0,0,0,.45);",
       };
     }
@@ -15217,7 +15252,7 @@
     _chartLegendSkin() {
       return {
         textStyle: { color: this._chartInk(), fontSize: 11.5 },
-        inactiveColor: "#5b6472",
+        inactiveColor: this._themeAlpha("var(--ink)", .3, "#5b6472"),
         itemWidth: 13,
         itemHeight: 9,
       };
@@ -15239,7 +15274,7 @@
         axisLine: { show: false },
         axisTick: { show: false },
         axisLabel: { color: this._chartInk(), fontSize: 11 },
-        nameTextStyle: { color: "#7c8592", fontSize: 10.5 },
+        nameTextStyle: { color: this._chartMuted(), fontSize: 10.5 },
         splitLine: { lineStyle: { color: this._chartLine(), type: "dashed" } },
       };
     }
@@ -17307,8 +17342,8 @@
           overflow-x: auto;
           padding: 20px 22px 16px;
           background: linear-gradient(135deg,
-            color-mix(in srgb, #102638 72%, var(--card-background-color)),
-            color-mix(in srgb, #08131e 48%, var(--card-background-color)));
+            color-mix(in srgb, var(--accent) 9%, var(--bg-panel)),
+            var(--bg-panel));
         }
         /* Duas colunas de largura desigual: o fluxo tem cinco nos e uma coluna
            de destinos, o rateio tem uma rosca. align-items nao e preciso — no
@@ -17434,9 +17469,9 @@
         /* Fora dos circulos, o painel usa um neutro so. A cor identifica a
            grandeza no anel; texto, setas e ligacoes nao competem com ela. */
         .energy-flow {
-          --fluxo-texto: #f4f7fb;
-          --fluxo-rotulo: #d0d7df;
-          --fluxo-traco: rgba(208, 215, 223, .55);
+          --fluxo-texto: var(--ink);
+          --fluxo-rotulo: var(--ink-2);
+          --fluxo-traco: color-mix(in srgb, var(--ink-2) 55%, transparent);
         }
         .energy-flow-node {
           position: relative;
@@ -17457,8 +17492,8 @@
           border: 2px solid currentColor;
           border-radius: 50%;
           background: radial-gradient(circle,
-            color-mix(in srgb, currentColor 19%, #07111c) 0%,
-            color-mix(in srgb, currentColor 8%, #07111c) 70%);
+            color-mix(in srgb, currentColor 19%, var(--bg-panel)) 0%,
+            color-mix(in srgb, currentColor 8%, var(--bg-panel)) 70%);
           box-shadow: 0 0 20px color-mix(in srgb, currentColor 18%, transparent);
           color: var(--no-cor, var(--primary-color));
         }
@@ -17483,17 +17518,15 @@
           white-space: nowrap;
         }
         .energy-flow-classification {
-          color: var(--secondary-text-color);
-          color: #aab6c2;
+          color: var(--ink-2);
           font-size: 10px;
           font-weight: 800;
           letter-spacing: .05em;
           text-transform: uppercase;
         }
         .energy-flow-note {
-          color: var(--secondary-text-color);
           max-width: 155px;
-          color: #9aa8b6;
+          color: var(--muted);
           font-size: 10px;
           line-height: 1.2;
         }
@@ -17628,7 +17661,7 @@
         }
         .energy-flow-disclaimer {
           margin: 0;
-          color: #91a0ae;
+          color: var(--muted);
           font-size: 10px;
           line-height: 1.4;
           text-align: right;
@@ -18155,17 +18188,17 @@
         .payback-legend-dot { width: 9px; height: 9px; border-radius: 3px; }
         .payback-legend-dot.partial {
           background: repeating-linear-gradient(
-            -45deg, rgba(255, 255, 255, .6) 0 1.5px, transparent 1.5px 3.5px
+            -45deg, color-mix(in srgb, var(--ink) 60%, transparent) 0 1.5px, transparent 1.5px 3.5px
           );
-          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .35);
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 35%, transparent);
         }
         .payback-legend-dot.estimated {
-          background: rgba(215, 219, 224, .30);
-          border: 1px dashed #aab3bd;
+          background: color-mix(in srgb, var(--ink-2) 30%, transparent);
+          border: 1px dashed var(--ink-2);
         }
         .payback-legend-wrap { display: grid; gap: 5px; }
         .payback-legend-line { width: 18px; height: 0; border-top-width: 2px; }
-        .payback-legend-line.accumulated { border-top-style: solid; border-top-color: #d7dbe0; }
+        .payback-legend-line.accumulated { border-top-style: solid; border-top-color: var(--ink); }
         .payback-chart-bar {
           display: flex;
           justify-content: flex-end;
@@ -18177,7 +18210,7 @@
           padding: 2px;
           border: 1px solid var(--line);
           border-radius: 7px;
-          background: var(--surface, rgba(0, 0, 0, .18));
+          background: var(--surface, var(--bg-inset));
         }
         .payback-chart-modes .payback-chart-mode {
           display: grid;
@@ -19117,7 +19150,7 @@
           font-size: 12px;
         }
         .payback-audit-partial {
-          color: #f2b544;
+          color: color-mix(in srgb, #f2b544 72%, var(--ink));
           font-size: 11px;
           font-weight: 600;
         }
@@ -20084,34 +20117,36 @@
            passa por este bloco; ele so decide como o que ja existe aparece.
            ================================================================= */
         :host {
-          /* Superficies. Tres niveis e o suficiente para hierarquia: o fundo
-             da area de trabalho, o corpo do painel e o realce interno. Mais
-             que isso vira ruido de profundidade. */
-          --bg-app: #101215;
-          --bg-rail: #16181c;
-          --bg-panel: #1a1d21;
-          --bg-inset: #202429;
-          --bg-hover: rgba(255, 255, 255, .045);
+          /* As cores vem do TEMA do Home Assistant. A paleta fixa, escura,
+             valia so para quem usava tema escuro: no claro, o texto do tema
+             (escuro) caia sobre o fundo daqui (escuro tambem) e sumia. Cada
+             token pede ao tema a cor do seu papel — fundo, cartao, texto —,
+             e quem fez o tema ja garantiu o contraste entre elas. O valor
+             depois da virgula e a paleta antiga, para quando o tema nao diz.
+             O que o tema nao tem (realce interno, linhas) sai da mistura do
+             texto com o fundo, e por isso inverte junto no claro e no escuro. */
+          --bg-app: var(--primary-background-color, #101215);
+          --bg-panel: var(--ha-card-background, var(--card-background-color, #1a1d21));
+          --bg-rail: color-mix(in srgb, var(--bg-panel) 55%, var(--bg-app));
+          --bg-inset: color-mix(in srgb, var(--ink) 5%, var(--bg-panel));
+          --bg-hover: color-mix(in srgb, var(--ink) 5%, transparent);
 
-          /* Neutros levemente frios, puxados para o azul do acento: cinza
-             puro nesta vizinhanca le como cor esquecida, nao escolhida. */
-          --ink: #f2f5f8;
-          --ink-2: #aeb7c2;
-          --muted: #7c8592;
-          --line: rgba(255, 255, 255, .075);
-          --line-strong: rgba(255, 255, 255, .14);
+          --ink: var(--primary-text-color, #f2f5f8);
+          --ink-2: var(--secondary-text-color, #aeb7c2);
+          --muted: color-mix(in srgb, var(--ink-2) 85%, var(--bg-panel));
+          --line: color-mix(in srgb, var(--ink) 9%, transparent);
+          --line-strong: color-mix(in srgb, var(--ink) 17%, transparent);
 
-          /* Acento de interface. Nao e cor de grandeza: e o azul do chrome —
-             navegacao, foco, links. As grandezas tem paleta propria e
-             intocada logo abaixo. */
-          --accent: #38bdf8;
-          --accent-soft: rgba(56, 189, 248, .12);
+          /* Acento de interface: o do tema. Nao e cor de grandeza — as
+             grandezas tem paleta propria e intocada logo abaixo. */
+          --accent: var(--primary-color, #38bdf8);
+          --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
 
-          /* Severidade operacional. Separada do acento de proposito: quando
-             tudo e azul, "critico" nao consegue gritar. */
-          --sev-ok: #22c55e;
-          --sev-warn: #f59e0b;
-          --sev-crit: #f43f5e;
+          /* Severidade operacional, tambem do tema: o verde de "ok" e o
+             vermelho de "critico" sao os mesmos do resto do Home Assistant. */
+          --sev-ok: var(--success-color, #22c55e);
+          --sev-warn: var(--warning-color, #f59e0b);
+          --sev-crit: var(--error-color, #f43f5e);
 
           /* Grandezas — espelho exato de METRIC_COLORS. Definidas como token
              para o CSS poder usa-las sem duplicar hex; a fonte da verdade
@@ -20663,7 +20698,7 @@
         .scada-table th {
           padding: 11px 18px;
           border-bottom: 1px solid var(--line);
-          background: rgba(255, 255, 255, .02);
+          background: color-mix(in srgb, var(--ink) 2%, transparent);
           color: var(--muted);
           font-size: 10px;
           font-weight: 700;
@@ -20725,7 +20760,7 @@
         }
         .tag-log {
           border-color: var(--line-strong);
-          background: rgba(255, 255, 255, .04);
+          background: color-mix(in srgb, var(--ink) 4%, transparent);
           color: var(--muted);
         }
 
@@ -20734,7 +20769,7 @@
         .console-head {
           padding: 14px 20px;
           border-bottom: 1px solid var(--line);
-          background: rgba(255, 255, 255, .02);
+          background: color-mix(in srgb, var(--ink) 2%, transparent);
           color: var(--muted);
           font-size: 10px;
           font-weight: 700;
@@ -20979,7 +21014,7 @@
         .unit-card-kpi-hint {
           padding: 1px 5px;
           border-radius: 3px;
-          background: rgba(255, 255, 255, .06);
+          background: color-mix(in srgb, var(--ink) 6%, transparent);
           color: var(--muted);
           font-size: 9px;
           font-weight: 700;
@@ -21402,18 +21437,18 @@
            reconhecida na fatura, o cartao fica neutro. */
         .bill-outlier.bandeira-verde { border-left-color: #34D399; }
         .bill-outlier.bandeira-verde .bill-outlier-icon,
-        .bill-outlier.bandeira-verde .bill-outlier-value { color: #34D399; }
+        .bill-outlier.bandeira-verde .bill-outlier-value { color: color-mix(in srgb, #34D399 72%, var(--ink)); }
         .bill-outlier.bandeira-amarela { border-left-color: #FFD54A; }
         .bill-outlier.bandeira-amarela .bill-outlier-icon,
-        .bill-outlier.bandeira-amarela .bill-outlier-value { color: #FFD54A; }
+        .bill-outlier.bandeira-amarela .bill-outlier-value { color: color-mix(in srgb, #F5B800 72%, var(--ink)); }
         .bill-outlier.bandeira-vermelha { border-left-color: #EF4444; }
         .bill-outlier.bandeira-vermelha .bill-outlier-icon,
         .bill-outlier.bandeira-vermelha .bill-outlier-value { color: #EF4444; }
         /* Branco levemente amarelado, da luz do poste. A borda entra junto:
            e ela que identifica o cartao de longe, como nas outras. */
-        .bill-outlier.iluminacao { border-left-color: #FFFDF2; }
+        .bill-outlier.iluminacao { border-left-color: var(--ink-2); }
         .bill-outlier.iluminacao .bill-outlier-icon,
-        .bill-outlier.iluminacao .bill-outlier-value { color: #FFFDF2; }
+        .bill-outlier.iluminacao .bill-outlier-value { color: var(--ink); }
         .bill-outlier.credito { border-left-color: var(--sev-ok); }
         .bill-outlier.credito .bill-outlier-icon { color: var(--sev-ok); }
 
@@ -21490,7 +21525,7 @@
         }
         .audit-modal-head {
           border-bottom: 1px solid var(--line);
-          background: rgba(255, 255, 255, .02);
+          background: color-mix(in srgb, var(--ink) 2%, transparent);
         }
         .audit-modal-title {
           font-size: 13px;
@@ -21595,7 +21630,7 @@
           padding: 7px 10px;
           border: 1px solid var(--line);
           border-radius: 5px;
-          background: rgba(255, 255, 255, .02);
+          background: color-mix(in srgb, var(--ink) 2%, transparent);
           color: var(--ink-2);
           font-size: 13px;
         }
@@ -21623,7 +21658,7 @@
         .settings-unit {
           border: 1px solid var(--line);
           border-radius: 8px;
-          background: rgba(255, 255, 255, .015);
+          background: color-mix(in srgb, var(--ink) 1.5%, transparent);
           overflow: hidden;
         }
         .settings-unit.open { border-color: var(--line-strong); }
@@ -21650,7 +21685,7 @@
           text-align: left;
           cursor: pointer;
         }
-        .settings-unit-head:hover { background: rgba(255, 255, 255, .03); }
+        .settings-unit-head:hover { background: color-mix(in srgb, var(--ink) 3%, transparent); }
         .settings-unit-caret { color: var(--muted); --mdc-icon-size: 20px; }
         .settings-unit-photo {
           display: grid;
@@ -21732,8 +21767,8 @@
           padding: 10px 12px;
           border: 1px solid var(--line-strong);
           border-radius: 6px;
-          background: #22262c;
-          box-shadow: 0 10px 26px rgba(0, 0, 0, .6);
+          background: var(--bg-inset);
+          box-shadow: 0 10px 26px rgba(0, 0, 0, .35);
           color: var(--ink-2);
           font-size: 11.5px;
           line-height: 1.5;
@@ -21841,7 +21876,7 @@
           padding: 12px;
           border: 1px solid var(--line);
           border-radius: 6px;
-          background: rgba(255, 255, 255, .012);
+          background: color-mix(in srgb, var(--ink) 1.2%, transparent);
         }
         .settings-metric-section-head { display: grid; gap: 2px; }
         .settings-metric-section-title {
@@ -21944,7 +21979,7 @@
           padding: 8px 10px;
           border-left: 2px solid var(--line);
           border-radius: 0 4px 4px 0;
-          background: rgba(255, 255, 255, .012);
+          background: color-mix(in srgb, var(--ink) 1.2%, transparent);
         }
         .settings-metric-row.source.retired { opacity: .7; background: transparent; }
         .settings-metric-row.source .settings-note { grid-column: 1 / -1; }
@@ -22110,7 +22145,7 @@
           border: 1px solid var(--line);
           border-left: 2px solid var(--line);
           border-radius: 6px;
-          background: rgba(255, 255, 255, .015);
+          background: color-mix(in srgb, var(--ink) 1.5%, transparent);
         }
         /* A fonte em uso ganha a marca; a encerrada recua de propósito, para
            a leitura cair primeiro no que vale hoje. */
