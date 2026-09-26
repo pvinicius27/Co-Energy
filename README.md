@@ -27,9 +27,10 @@ sua origem.
 - As faturas em PDF da distribuidora, no seu computador — o PDF digital da 2ª
   via, não foto ou escaneado. Distribuidoras lidas hoje:
   - **Equatorial Goiás**, inclusive com geração solar (SCEE);
-  - **CPFL Piratininga**, por enquanto só sem geração solar.
+  - **CPFL Piratininga**, por enquanto só sem geração solar;
+  - **Neoenergia Brasília**, por enquanto só sem geração solar.
 
-  As outras distribuidoras dos dois grupos usam o mesmo modelo de fatura e
+  As outras distribuidoras desses grupos usam o mesmo modelo de fatura e
   devem funcionar, mas ainda não foram conferidas com uma fatura real.
 
 ## Instalação

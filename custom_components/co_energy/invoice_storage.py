@@ -195,7 +195,6 @@ def read_invoice_pdf(dados: bytes, nome: Any) -> tuple[dict[str, Any], str | Non
         # Cada grupo de distribuidoras tem o proprio leitor. O texto decide
         # qual — e diz tambem quando nao ha texto (foto) ou leitor.
         from . import concessionarias
-        from .concessionarias.cpfl import fatura as cpfl
 
         try:
             _paginas, texto = motor.ler_pdf(caminho)
@@ -208,10 +207,12 @@ def read_invoice_pdf(dados: bytes, nome: Any) -> tuple[dict[str, Any], str | Non
             raise InvoiceStorageError("the PDF has no text")
         if tipo == "sem_leitor":
             raise InvoiceStorageError("no reader for this distributor")
-        if tipo == "cpfl":
+        if tipo in concessionarias.LEITORES:
+            leitor = concessionarias.LEITORES[tipo]
             try:
-                fatura, digitos = cpfl.ler(caminho)
-            except cpfl.LeitorCpflError as error:
+                fatura, digitos = leitor.ler(caminho)
+            except ValueError as error:
+                # Recusa explicada pelo leitor (por ora, fatura com geracao).
                 raise InvoiceStorageError(str(error)) from error
             except Exception as error:  # noqa: BLE001 - o leitor pode falhar de mil jeitos
                 raise InvoiceStorageError(

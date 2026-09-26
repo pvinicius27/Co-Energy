@@ -7161,9 +7161,9 @@
       if (/no reader for this distributor/.test(texto)) {
         return "ainda não há leitor para a distribuidora desta fatura";
       }
-      if (/cpfl compensation not supported/.test(texto)) {
-        return "fatura da CPFL com geração solar (SCEE): o leitor ainda não lê"
-          + " essa parte";
+      if (/compensation not supported/.test(texto)) {
+        return "fatura com geração solar (SCEE) desta distribuidora: o leitor"
+          + " ainda não lê essa parte";
       }
       if (/could not read the invoice/.test(texto)) {
         return "não foi possível ler esta fatura, ou o PDF está danificado";
