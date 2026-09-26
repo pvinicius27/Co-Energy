@@ -26,7 +26,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..equatorial import fatura as base
-from ..equatorial_adapter import uc_digits, uc_hash
+from ...equatorial_adapter import uc_digits, uc_hash
 
 VERSAO = "cpfl-1"
 

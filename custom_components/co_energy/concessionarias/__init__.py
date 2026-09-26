@@ -1,19 +1,18 @@
-"""Qual leitor lê esta fatura.
+"""As concessionárias que a integração sabe ler, uma pasta por grupo.
 
-Cada grupo de distribuidoras tem o próprio leitor, porque o layout da fatura é
-do grupo. Todos entregam o mesmo documento (`docs/contrato-extrator.md`), e é
-por isso que nada depois daqui sabe de qual distribuidora a fatura veio.
-
-O leitor da Equatorial ainda mora em `equatorial/`, onde nasceu: é o caminho
-de sempre, e continua sendo o de quem não foi reconhecido por outro.
+Cada grupo tem o próprio leitor, porque o layout da fatura é do grupo:
+``equatorial/``, ``cpfl/``. Todos entregam o mesmo documento
+(`docs/contrato-extrator.md`), e é por isso que nada depois daqui sabe de qual
+distribuidora a fatura veio. Este módulo decide qual leitor lê cada PDF; a
+Equatorial continua sendo o caminho de quem não foi reconhecido por outro.
 """
 
 from __future__ import annotations
 
 import re
 
-from ..equatorial.fatura import sem_acentos
-from . import cpfl
+from .cpfl import fatura as cpfl
+from .equatorial.fatura import sem_acentos
 
 #: Menos que isto de texto e o PDF é uma imagem: foto ou escaneado.
 TEXTO_MINIMO = 200

@@ -179,7 +179,7 @@ def read_invoice_pdf(dados: bytes, nome: Any) -> tuple[dict[str, Any], str | Non
 
     Bloqueia: chame no executor.
     """
-    from .equatorial import fatura as motor
+    from .concessionarias.equatorial import fatura as motor
 
     if not isinstance(dados, (bytes, bytearray)) or not dados:
         raise InvoiceStorageError("the file is empty")
@@ -194,8 +194,8 @@ def read_invoice_pdf(dados: bytes, nome: Any) -> tuple[dict[str, Any], str | Non
         caminho.write_bytes(bytes(dados))
         # Cada grupo de distribuidoras tem o proprio leitor. O texto decide
         # qual — e diz tambem quando nao ha texto (foto) ou leitor.
-        from . import leitores
-        from .leitores import cpfl
+        from . import concessionarias
+        from .concessionarias.cpfl import fatura as cpfl
 
         try:
             _paginas, texto = motor.ler_pdf(caminho)
@@ -203,7 +203,7 @@ def read_invoice_pdf(dados: bytes, nome: Any) -> tuple[dict[str, Any], str | Non
             raise InvoiceStorageError(
                 f"could not read the invoice: {type(error).__name__}"
             ) from error
-        tipo = leitores.identificar(texto)
+        tipo = concessionarias.identificar(texto)
         if tipo == "imagem":
             raise InvoiceStorageError("the PDF has no text")
         if tipo == "sem_leitor":
@@ -250,7 +250,7 @@ def build_invoice_document(
     As unidades entram pelo ``billing_key``, que e a chave que o resto da
     integracao usa para achar a fatura de cada uma.
     """
-    from .equatorial import fatura as motor
+    from .concessionarias.equatorial import fatura as motor
 
     unidades: dict[str, str] = {}
     for unit_id, unit in (model.get("units") or {}).items():
