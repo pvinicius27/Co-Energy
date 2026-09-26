@@ -192,6 +192,34 @@ def read_invoice_pdf(dados: bytes, nome: Any) -> tuple[dict[str, Any], str | Non
     with tempfile.TemporaryDirectory(prefix="co_energy_") as pasta:
         caminho = Path(pasta) / nome_arquivo
         caminho.write_bytes(bytes(dados))
+        # Cada grupo de distribuidoras tem o proprio leitor. O texto decide
+        # qual — e diz tambem quando nao ha texto (foto) ou leitor.
+        from . import leitores
+        from .leitores import cpfl
+
+        try:
+            _paginas, texto = motor.ler_pdf(caminho)
+        except Exception as error:  # noqa: BLE001 - PDF que nem abre
+            raise InvoiceStorageError(
+                f"could not read the invoice: {type(error).__name__}"
+            ) from error
+        tipo = leitores.identificar(texto)
+        if tipo == "imagem":
+            raise InvoiceStorageError("the PDF has no text")
+        if tipo == "sem_leitor":
+            raise InvoiceStorageError("no reader for this distributor")
+        if tipo == "cpfl":
+            try:
+                fatura, digitos = cpfl.ler(caminho)
+            except cpfl.LeitorCpflError as error:
+                raise InvoiceStorageError(str(error)) from error
+            except Exception as error:  # noqa: BLE001 - o leitor pode falhar de mil jeitos
+                raise InvoiceStorageError(
+                    f"could not read the invoice: {type(error).__name__}"
+                ) from error
+            if not (fatura.get("identificacao") or {}).get("competencia"):
+                raise InvoiceStorageError("the invoice reference could not be read")
+            return fatura, (digitos or "")[-4:] or None
         try:
             resultado = motor.processar_pdf(str(caminho))
             # O motor nao levanta: marca ERRO e anexa o rastro do erro aos

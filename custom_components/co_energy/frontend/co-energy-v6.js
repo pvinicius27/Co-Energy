@@ -7154,8 +7154,19 @@
       if (/reference could not be read/.test(texto)) {
         return "não foi possível ler o mês de referência";
       }
+      if (/has no text/.test(texto)) {
+        return "é uma imagem (foto ou escaneado): baixe a 2ª via em PDF no site"
+          + " ou app da distribuidora";
+      }
+      if (/no reader for this distributor/.test(texto)) {
+        return "ainda não há leitor para a distribuidora desta fatura";
+      }
+      if (/cpfl compensation not supported/.test(texto)) {
+        return "fatura da CPFL com geração solar (SCEE): o leitor ainda não lê"
+          + " essa parte";
+      }
       if (/could not read the invoice/.test(texto)) {
-        return "não parece uma fatura da Equatorial, ou o PDF está danificado";
+        return "não foi possível ler esta fatura, ou o PDF está danificado";
       }
       return texto || `falhou (HTTP ${status ?? "?"})`;
     }

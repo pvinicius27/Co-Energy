@@ -24,7 +24,13 @@ sua origem.
 - Home Assistant 2026.9 ou mais recente, com o Recorder ativo.
 - Medição no Home Assistant para as unidades que você quer auditar. Unidade sem
   medidor continua funcionando pela fatura, e é apresentada como tal.
-- As faturas em PDF da distribuidora, no seu computador.
+- As faturas em PDF da distribuidora, no seu computador — o PDF digital da 2ª
+  via, não foto ou escaneado. Distribuidoras lidas hoje:
+  - **Equatorial Goiás**, inclusive com geração solar (SCEE);
+  - **CPFL Piratininga**, por enquanto só sem geração solar.
+
+  As outras distribuidoras dos dois grupos usam o mesmo modelo de fatura e
+  devem funcionar, mas ainda não foram conferidas com uma fatura real.
 
 ## Instalação
 
