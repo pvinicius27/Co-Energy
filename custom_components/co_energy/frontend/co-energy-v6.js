@@ -2435,10 +2435,17 @@
           cell(this._auditValue(entry.official_value, entry.unit, 0), "num"),
           cell(this._auditValue(entry.measured_value, entry.unit), "num"),
           this._auditDifferenceCell(entry, dentro),
-          this._auditVerdictCell(entry, {
-            dentro, tolerancia, unit, reference, index,
-            timezone: data.period?.timezone,
-          }),
+          // Sem veredito do servidor (sem tolerancia, sem percentual) nao e
+          // "Dentro": era assim que uma divergencia de 39% aparecia aprovada.
+          typeof entry.within_tolerance === "boolean"
+            ? this._auditVerdictCell(entry, {
+              dentro, tolerancia, unit, reference, index,
+              timezone: data.period?.timezone,
+            })
+            : this._auditNeutralVerdictCell(
+              "Sem veredito",
+              "A auditoria não conseguiu comparar esta grandeza com a tolerância.",
+            ),
         ], primeira ? "" : "metric-continued"));
       });
       this._mergeAuditCycleColumn(rows);

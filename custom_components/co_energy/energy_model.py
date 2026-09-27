@@ -145,11 +145,18 @@ _AUDIT_OFFICIAL_SOURCES = frozenset(
 )
 
 
+#: "Tolerância inicial: 5%" (docs/contrato-funcional.md). Vale para o modelo
+#: sem a seção ``audit`` — todo modelo criado pela integração, até a 0.6.33.
+#: Sem ela o servidor não julgava nada, e a tela mostrava "Dentro" para uma
+#: divergência de 39%.
+DEFAULT_AUDIT_TOLERANCE_PERCENT = 5.0
+
+
 def _get_audit_tolerance_percent(
     model: Mapping[str, Any],
 ) -> float | None:
     if "audit" not in model:
-        return None
+        return DEFAULT_AUDIT_TOLERANCE_PERCENT
     audit = _require_mapping(model["audit"], "audit")
     if "tolerance_percent" not in audit:
         raise EnergyModelError("audit.tolerance_percent is required")

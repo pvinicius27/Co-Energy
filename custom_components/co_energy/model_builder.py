@@ -26,7 +26,11 @@ import re
 from typing import Any, Mapping
 import unicodedata
 
-from .energy_model import EnergyModelError, validate_energy_model
+from .energy_model import (
+    DEFAULT_AUDIT_TOLERANCE_PERCENT,
+    EnergyModelError,
+    validate_energy_model,
+)
 from .equatorial_adapter import is_uc_hash, uc_digits, uc_hash
 
 #: Papéis que a pergunta de abertura produz. "Tem geração?" é a única coisa
@@ -162,6 +166,9 @@ def build_model(
         "model_version": 1,
         "general": {"timezone": timezone},
         "billing": billing,
+        # A tolerância da auditoria vai escrita, e não só suposta na leitura:
+        # quem abrir o modelo vê qual limite está valendo.
+        "audit": {"tolerance_percent": DEFAULT_AUDIT_TOLERANCE_PERCENT},
         "coverage_algorithm": _copiar(DEFAULT_COVERAGE_ALGORITHM),
         "units": {unit_id: _copiar(unit) for unit_id, unit in units.items()},
     }
