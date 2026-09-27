@@ -429,6 +429,37 @@ def distributor_name(document: Any) -> str | None:
     return next(iter(nomes)) if len(nomes) == 1 else None
 
 
+def distributor_names_by_unit(document: Any, model: Any) -> dict[str, str]:
+    """A distribuidora da fatura mais recente de cada unidade.
+
+    Uma instalação pode ter unidades em distribuidoras diferentes — uma casa
+    em Goiás, um apartamento em Brasília. O nome da instalação inteira some
+    nesse caso; o de cada unidade continua certo.
+    """
+    if not isinstance(document, EquatorialDocument) or not isinstance(model, Mapping):
+        return {}
+    units = model.get("units")
+    saida: dict[str, str] = {}
+    for unit_id, unit in (units.items() if isinstance(units, Mapping) else ()):
+        chave = (unit.get("billing_key") if isinstance(unit, Mapping) else None) or unit_id
+        registro = document.units.get(chave)
+        faturas = registro.get("faturas") if isinstance(registro, Mapping) else None
+        # So o que o rotulo precisa: competencia e distribuidora. Exigir a
+        # fatura inteira valida deixaria a unidade sem nome por um campo que
+        # nada tem a ver com ele.
+        candidatas = []
+        for fatura in faturas if isinstance(faturas, list) else ():
+            identificacao = fatura.get("identificacao") if isinstance(fatura, Mapping) else None
+            if not isinstance(identificacao, Mapping):
+                continue
+            nome = identificacao.get("distribuidora")
+            if isinstance(nome, str) and nome.strip():
+                candidatas.append((str(identificacao.get("competencia") or ""), nome.strip()))
+        if candidatas:
+            saida[unit_id] = max(candidatas)[1]
+    return saida
+
+
 def bill_stats_by_uc(document: Any) -> dict[str, dict[str, Any]]:
     """Return, per UC hash, how many bills it has and which period they cover.
 

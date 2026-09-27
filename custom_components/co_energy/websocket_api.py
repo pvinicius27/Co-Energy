@@ -62,6 +62,7 @@ from .billing import (
     bill_stats_by_uc,
     declared_uc_hashes,
     distributor_name,
+    distributor_names_by_unit,
     get_bill_by_reference,
     parse_billing_reference,
 )
@@ -708,9 +709,7 @@ async def _async_handle_get_units(
         serialized = serialize_unit_catalog(
             runtime.model,
             has_billing=tem_fatura,
-            distributor=(
-                await _async_distributor_name(hass, runtime) if tem_fatura else None
-            ),
+            **(await _async_distributors(hass, runtime) if tem_fatura else {}),
             has_investment=tem_investimento,
         )
     except UnitCatalogSerializationError:
@@ -2177,19 +2176,24 @@ async def _async_save_model_change(
     return atualizado
 
 
-async def _async_distributor_name(hass: Any, runtime: CoEnergyRuntime) -> str | None:
-    """O nome da distribuidora nas faturas, para a tela não escrever um fixo.
+async def _async_distributors(hass: Any, runtime: CoEnergyRuntime) -> dict[str, Any]:
+    """O nome da distribuidora nas faturas: o da instalação e o de cada unidade.
 
-    Sem conseguir ler as faturas agora, None: o catálogo não pode falhar por
+    O da instalação só existe quando todas as faturas são da mesma. Sem
+    conseguir ler as faturas agora, nenhum: o catálogo não pode falhar por
     causa de um rótulo.
     """
     executor = getattr(hass, "async_add_executor_job", None)
     if not callable(executor):
-        return None
+        return {}
     try:
-        return distributor_name(await _async_billing_document(runtime, executor))
+        documento = await _async_billing_document(runtime, executor)
     except (EquatorialAdapterError, OSError, TypeError, ValueError):
-        return None
+        return {}
+    return {
+        "distributor": distributor_name(documento),
+        "unit_distributors": distributor_names_by_unit(documento, runtime.model),
+    }
 
 
 def _has_owned_invoice(runtime: CoEnergyRuntime) -> bool:

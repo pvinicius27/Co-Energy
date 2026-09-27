@@ -1976,7 +1976,7 @@
     // uma segunda fonte da verdade: se o energy-model mudar a tolerancia, o
     // titulo passaria a mentir ate alguem lembrar de edita-lo.
     _auditOverviewTitle() {
-      const base = `A divergência entre a Fatura (${this._distributorLabel()}) `
+      const base = `A divergência entre a Fatura (${this._distributorLabel("Distribuidora", this._auditedUnitIds())}) `
         + "e o Sensor (HA) ficou dentro do limite";
       const tolerancia = this._auditTolerancePercent();
       // Nada carregado ainda: melhor a pergunta sem o numero do que um numero
@@ -2031,7 +2031,7 @@
       table.append(colgroup);
       const head = this._element("tr", "");
       for (const label of [
-        "Unidade", "Ciclo", "Sentido (Fluxo)", `Fatura (${this._distributorLabel()})`, "Sensor (HA)",
+        "Unidade", "Ciclo", "Sentido (Fluxo)", `Fatura (${this._distributorLabel("Distribuidora", this._auditedUnitIds())})`, "Sensor (HA)",
         "Diferença", "Conferência",
       ]) {
         head.append(this._element("th", "", label));
@@ -3066,6 +3066,8 @@
               color: typeof item.color === "string" ? item.color : null,
               // Quem declarou "sem medidor" nao deve ouvir "aponte um sensor".
               measured: item.measured !== false,
+              distributor: typeof item.distributor === "string" && item.distributor.trim()
+                ? item.distributor.trim() : null,
             });
           });
           this._unitCatalog = Object.freeze(units);
@@ -5102,14 +5104,14 @@
       const officialLastReading = ["Média", "Autoleitura"].includes(billingMethod)
         && formattedOfficialReading
         && formattedOfficialReading !== "—"
-        ? `<small>Última leitura da ${this._escapeHtml(this._distributorLabel("distribuidora"))}: ${this._escapeHtml(formattedOfficialReading)}</small>`
+        ? `<small>Última leitura da ${this._escapeHtml(this._distributorLabel("distribuidora", data?.unit_id ?? this._selectedUnit))}: ${this._escapeHtml(formattedOfficialReading)}</small>`
         : "";
       const reportedPrevious = !billingMethod
         && diagnostic.classification === "possible_estimate"
         && diagnostic.reported_previous
         ? `<small>Leitura anterior informada: ${this._escapeHtml(this._formatDate(diagnostic.reported_previous))}</small>`
         : "";
-      return `<section class="history-tooltip"><b>${this._escapeHtml(cycle.billing_reference)}</b><div><strong>Consumo oficial</strong><span>${this._escapeHtml(`${this._formatHistoryNumber(point.value)} kWh`)}</span></div>${period ? `<small>Período do ciclo: ${this._escapeHtml(period)}</small>` : ""}${readingDays ? `<small>Dias faturados: ${this._escapeHtml(readingDays)}</small>` : ""}${billingDetail}${officialLastReading}${reportedPrevious}<small>Fonte: ${this._escapeHtml(this._distributorLabel())}</small><small>Classificação: Oficial</small></section>`;
+      return `<section class="history-tooltip"><b>${this._escapeHtml(cycle.billing_reference)}</b><div><strong>Consumo oficial</strong><span>${this._escapeHtml(`${this._formatHistoryNumber(point.value)} kWh`)}</span></div>${period ? `<small>Período do ciclo: ${this._escapeHtml(period)}</small>` : ""}${readingDays ? `<small>Dias faturados: ${this._escapeHtml(readingDays)}</small>` : ""}${billingDetail}${officialLastReading}${reportedPrevious}<small>Fonte: ${this._escapeHtml(this._distributorLabel("Distribuidora", data?.unit_id ?? this._selectedUnit))}</small><small>Classificação: Oficial</small></section>`;
     }
 
     _historyTooltip(data, params) {
@@ -5930,11 +5932,27 @@
       ];
     }
 
-    // O nome que as faturas imprimem, dito pelo backend. Sem fatura, ou com
-    // mais de uma distribuidora, o generico: o painel nao presume qual e a
-    // concessionaria de quem instalou.
-    _distributorLabel(generico = "Distribuidora") {
+    // O nome que as faturas imprimem, dito pelo backend — da unidade, quando a
+    // tela e de uma unidade; das unidades mostradas juntas, quando todas sao da
+    // mesma. Uma instalacao pode ter uma casa em Goias e um apartamento em
+    // Brasilia: o nome unico da instalacao some, o de cada unidade nao. Sem
+    // nome certo, o generico: o painel nao presume a concessionaria.
+    _distributorLabel(generico = "Distribuidora", unidades = null) {
+      if (unidades !== null) {
+        const ids = new Set([].concat(unidades).filter(Boolean));
+        const nomes = new Set(this._units()
+          .filter((unidade) => ids.has(unidade.id) && unidade.distributor)
+          .map((unidade) => unidade.distributor));
+        if (nomes.size === 1) return [...nomes][0];
+        if (nomes.size > 1) return generico;
+      }
       return this._distributorName ?? generico;
+    }
+
+    // As unidades que a auditoria compara: as que tem medidor.
+    _auditedUnitIds() {
+      return this._units().filter((unidade) => unidade.measured !== false)
+        .map((unidade) => unidade.id);
     }
 
     _pageLabel(page = this._page) {
@@ -6062,7 +6080,7 @@
           ? `${nome} · próxima leitura ${this._formatDate(cycle.expected_next_reading)}`
           : nome;
       }
-      if (this._page === "auditoria") return `Medido no Home Assistant × faturado pela ${this._distributorLabel("distribuidora")}`;
+      if (this._page === "auditoria") return `Medido no Home Assistant × faturado pela ${this._distributorLabel("distribuidora", this._auditedUnitIds())}`;
       if (this._page === "payback") return "Retorno do investimento no sistema solar";
       if (this._page === "diagnostico") return "Sensores, cobertura do ciclo e faturas de cada unidade";
       if (this._page === "alertas") return "Condições que exigem verificação";
@@ -13649,7 +13667,7 @@
       const values = this._element("div", "audit-values");
       values.append(
         this._field(
-          this._distributorLabel(),
+          this._distributorLabel("Distribuidora", this._selectedUnit),
           this._valueWithUnit(entry.official_value, entry.unit, 2),
         ),
         this._field(
@@ -13822,7 +13840,7 @@
           "audit-reference-label",
           data?.status === "not_applicable"
             ? "Referência oficial"
-            : `${this._distributorLabel()} × Home Assistant`,
+            : `${this._distributorLabel("Distribuidora", data?.unit_id ?? this._selectedUnit)} × Home Assistant`,
         ),
         this._element("strong", "audit-reference-value", this._auditReference() ?? "—"),
       );

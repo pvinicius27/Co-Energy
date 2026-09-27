@@ -31,6 +31,7 @@ def serialize_unit_catalog(
     *,
     has_billing: bool = False,
     distributor: str | None = None,
+    unit_distributors: Mapping[str, str] | None = None,
     has_investment: bool = False,
 ) -> dict[str, Any]:
     """Serialize the declared units through an explicit allowlist.
@@ -60,6 +61,8 @@ def serialize_unit_catalog(
                 # de configuracao porque quem a usa — payback, rosca do
                 # rateio — carrega o catalogo, nao a configuracao.
                 "color": _declared_color(model, unit_id),
+                # A distribuidora da fatura desta unidade, ou None.
+                "distributor": (unit_distributors or {}).get(unit_id),
             }
             for unit_id in unit_ids
         ]
