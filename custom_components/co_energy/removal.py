@@ -95,6 +95,19 @@ def remove_empty_dir(caminho: Path) -> None:
         pass
 
 
+def remove_picture_folders(images_dir: Path) -> None:
+    """A pasta das fotos e a pasta dela, se as duas ficaram vazias.
+
+    As fotos moram em ``www/energy_dashboard/imagens``, e as duas pastas foram
+    criadas pela integração. Tirar só ``imagens`` deixava ``energy_dashboard``
+    vazia em ``www`` — a única coisa que sobrava de quem removeu tudo. Sobe um
+    nível e para: ``www`` é do Home Assistant, não nossa. Pasta com qualquer
+    outra coisa dentro fica. Bloqueia: chame no executor.
+    """
+    remove_empty_dir(images_dir)
+    remove_empty_dir(images_dir.parent)
+
+
 def unit_ids_from_stored_model(raw: Any) -> tuple[str, ...]:
     """As unidades do modelo como o Store o guardou.
 
@@ -159,6 +172,8 @@ async def async_remove_all_data(hass: Any) -> None:
         fotos = await executor(unit_picture_paths, imagens, unit_ids)
         if fotos:
             await executor(remove_files, fotos)
-            await executor(remove_empty_dir, imagens)
+        # Mesmo sem foto: a pasta pode ter ficado vazia de antes (foto trocada
+        # ou apagada pela tela) e sobraria do mesmo jeito.
+        await executor(remove_picture_folders, imagens)
     except Exception:  # noqa: BLE001 - a remoção da entrada prossegue
         _LOGGER.exception("Could not remove the CoEnergy data")
