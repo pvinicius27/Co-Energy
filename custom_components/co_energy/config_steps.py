@@ -26,6 +26,8 @@ from .model_builder import (
     ROLE_GENERATOR,
     add_unit,
     metrics_for_role,
+    move_previous_meter_cut,
+    remove_previous_meter,
     remove_unit_measurement,
     remove_unit_series,
     rename_unit,
@@ -67,6 +69,18 @@ ERROR_HISTORY_KEEP = "history_keep"
 ERROR_PREVIOUS_INCOMPLETE = "previous_incomplete"
 ERROR_PREVIOUS_NEEDS_CURRENT = "previous_needs_current"
 ERROR_PREVIOUS_SAME = "previous_same"
+ERROR_CORRECTION_INCOMPLETE = "correction_incomplete"
+ERROR_CORRECTION_CONFIRM = "correction_confirm"
+
+#: O "O que fazer" da seção Medidor anterior: registrar um novo, ou apagar /
+#: corrigir a data de um já registrado. Valores da lista na tela e chaves de
+#: tradução (``selector.acao_anterior.options``). Registrar é o padrão: é o
+#: que a seção sempre fez, e quem não mexe no campo continua tendo isso.
+PREVIOUS_ADD = "registrar"
+CORRECTION_REMOVE = "remover"
+CORRECTION_MOVE = "mudar_data"
+CORRECTION_ACTIONS = (CORRECTION_REMOVE, CORRECTION_MOVE)
+PREVIOUS_ACTIONS = (PREVIOUS_ADD, *CORRECTION_ACTIONS)
 
 
 def unit_ids(model: Mapping[str, Any]) -> tuple[str, ...]:
@@ -170,6 +184,55 @@ def history_lines(model: Mapping[str, Any], unit_id: str) -> list[str]:
         for campo in sensor_fields(model, unit_id)
         for fonte in campo["history"]
     ]
+
+
+def previous_meter_choices(
+    model: Mapping[str, Any], unit_id: str
+) -> list[dict[str, str]]:
+    """Os medidores anteriores como opções: ``<grandeza>#<posição>``.
+
+    O rótulo é a mesma linha do histórico, para a pessoa reconhecer o que
+    está vendo logo acima. A posição é a da fonte na série; o atual (a
+    última) nunca entra, porque ele se corrige pelo próprio campo.
+    """
+    opcoes: list[dict[str, str]] = []
+    for campo in sensor_fields(model, unit_id):
+        for posicao, fonte in enumerate(campo["history"]):
+            opcoes.append({
+                "value": f"{campo['metric']}#{posicao}",
+                "label": (
+                    f"{campo['label']}: {fonte.get('entity_id')} "
+                    f"até {_quando(fonte.get('until'))}"
+                ),
+            })
+    return opcoes
+
+
+def apply_previous_correction(
+    model: Mapping[str, Any],
+    unit_id: str,
+    record: Any,
+    action: Any,
+    until: datetime | None,
+) -> dict[str, Any]:
+    """Apagar um medidor anterior ou corrigir até quando ele valeu.
+
+    ``record`` é um valor de ``previous_meter_choices``. Recusa de regra (data
+    fora dos limites, registro que não existe mais) sobe como
+    ``ModelBuilderError``; falta de campo, como ``ValueError`` com o motivo.
+    """
+    if not isinstance(record, str) or "#" not in record or action not in CORRECTION_ACTIONS:
+        raise ValueError(ERROR_CORRECTION_INCOMPLETE)
+    metrica, _, posicao = record.rpartition("#")
+    try:
+        indice = int(posicao)
+    except ValueError as error:
+        raise ValueError(ERROR_CORRECTION_INCOMPLETE) from error
+    if action == CORRECTION_REMOVE:
+        return remove_previous_meter(model, unit_id, metrica, indice)
+    if not isinstance(until, datetime):
+        raise ValueError(ERROR_CORRECTION_INCOMPLETE)
+    return move_previous_meter_cut(model, unit_id, metrica, indice, until)
 
 
 def markdown_list(lines: list[str], empty: str) -> str:

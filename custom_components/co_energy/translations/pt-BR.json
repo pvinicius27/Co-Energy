@@ -148,14 +148,17 @@
         "sections": {
           "medidor_anterior": {
             "name": "Medidor anterior (troca de medidor)",
-            "description": "Use quando o medidor físico foi trocado: informe qual sensor era usado antes e até quando. Antes dessa data vale o sensor anterior; a partir dela, o atual.",
+            "description": "Use quando o medidor físico foi trocado: informe qual sensor era usado antes e até quando. Antes dessa data vale o sensor anterior; a partir dela, o atual. Registrou errado? Em \"O que fazer\", escolha apagar ou corrigir a data de um já registrado.",
             "data": {
+              "o_que_fazer": "O que fazer",
+              "registro": "Medidor já registrado (para apagar ou corrigir)",
               "grandeza": "Grandeza",
               "sensor_anterior": "Sensor anterior",
-              "usado_ate": "Usado até"
+              "usado_ate": "Usado até",
+              "confirmar_correcao": "Confirmo apagar ou corrigir"
             },
             "data_description": {
-              "usado_ate": "O corte cai na hora cheia.\n\n**Medidores anteriores já registrados:** {historico}"
+              "usado_ate": "O corte cai na hora cheia. Para corrigir a data, informe aqui a nova.\n\n**Medidores anteriores já registrados:** {historico}"
             }
           }
         }
@@ -221,13 +224,25 @@
       "previous_same": "O sensor anterior é o mesmo que o atual.",
       "unit_without_meter": "Esta unidade está marcada como sem medidor no Home Assistant. Para incluir sensores, marque \"Esta unidade tem medidor no Home Assistant\" em Editar unidade.",
       "confirm_required": "Marque a confirmação para excluir.",
-      "unit_has_share": "Esta unidade tem {percentual}% do rateio. Leve o percentual dela a zero em \"Rateio dos créditos\" antes de excluí-la — senão as outras deixam de somar 100%."
+      "unit_has_share": "Esta unidade tem {percentual}% do rateio. Leve o percentual dela a zero em \"Rateio dos créditos\" antes de excluí-la — senão as outras deixam de somar 100%.",
+      "correction_incomplete": "Para apagar ou corrigir, escolha o medidor já registrado e, para corrigir a data, informe a nova em \"Usado até\".",
+      "correction_confirm": "Marque \"Confirmo apagar ou corrigir\" para mudar um medidor já registrado.",
+      "correction_refused": "A correção não foi aceita: a nova data precisa ficar depois do início desse medidor e antes do fim do seguinte."
     },
     "abort": {
       "runtime_unavailable": "A integração ainda não terminou de carregar. Tente de novo em alguns segundos.",
       "distribution_unavailable": "O rateio guardado não pôde ser lido. Veja o registro do Home Assistant.",
       "save_failed": "Não foi possível salvar. Veja o registro do Home Assistant.",
       "faturas_no_painel": "**As faturas são lidas no painel, não aqui.**\n\n1. Abra **Gestão de Energia** na barra lateral.\n2. Vá na aba **Configuração**.\n3. Clique em **Extração de faturas** e escolha a pasta com os PDFs."
+    }
+  },
+  "selector": {
+    "acao_anterior": {
+      "options": {
+        "registrar": "Registrar um medidor anterior",
+        "remover": "Apagar um registrado (o período passa para o medidor seguinte)",
+        "mudar_data": "Corrigir a data de um registrado"
+      }
     }
   }
 }

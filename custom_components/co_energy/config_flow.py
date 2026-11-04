@@ -80,6 +80,9 @@ F_ANTERIOR = "medidor_anterior"
 F_ANT_GRANDEZA = "grandeza"
 F_ANT_SENSOR = "sensor_anterior"
 F_ANT_ATE = "usado_ate"
+F_ANT_ACAO = "o_que_fazer"
+F_ANT_REGISTRO = "registro"
+F_ANT_CONFIRMA = "confirmar_correcao"
 
 _SENSOR = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
 
@@ -342,6 +345,7 @@ _KNOWN_ERRORS = {
     passos.ERROR_HISTORY_KEEP,
     passos.ERROR_PREVIOUS_INCOMPLETE, passos.ERROR_PREVIOUS_NEEDS_CURRENT,
     passos.ERROR_PREVIOUS_SAME,
+    passos.ERROR_CORRECTION_INCOMPLETE, passos.ERROR_CORRECTION_CONFIRM,
 }
 
 
@@ -610,11 +614,35 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
             medida = unidade.get("measured") is not False
             anterior = user_input.get(F_ANTERIOR) or {}
             campos_anterior = (F_ANT_GRANDEZA, F_ANT_SENSOR, F_ANT_ATE)
+            acao = anterior.get(F_ANT_ACAO) or passos.PREVIOUS_ADD
             try:
                 if medida and not passos.has_any_choice(modelo, unit_id, user_input):
                     raise ValueError(passos.ERROR_SENSOR_REQUIRED)
                 novo = passos.apply_sensor_choices(modelo, unit_id, user_input)
-                if any(anterior.get(k) for k in campos_anterior):
+                if acao != passos.PREVIOUS_ADD:
+                    # Apagar ou corrigir a data de um já registrado. O
+                    # registro aponta para a posição que ele tem AGORA, a
+                    # da lista mostrada; "Usado até" é a data nova.
+                    if not anterior.get(F_ANT_CONFIRMA):
+                        raise ValueError(passos.ERROR_CORRECTION_CONFIRM)
+                    quando = None
+                    if acao == passos.CORRECTION_MOVE:
+                        try:
+                            quando = passos.swap_instant(
+                                anterior.get(F_ANT_ATE),
+                                dt_util.get_default_time_zone(),
+                            )
+                        except ValueError as error:
+                            raise ValueError(
+                                passos.ERROR_CORRECTION_INCOMPLETE
+                            ) from error
+                    try:
+                        novo = passos.apply_previous_correction(
+                            novo, unit_id, anterior.get(F_ANT_REGISTRO), acao, quando,
+                        )
+                    except ModelBuilderError as error:
+                        raise ValueError("correction_refused") from error
+                elif any(anterior.get(k) for k in campos_anterior):
                     if not all(anterior.get(k) for k in campos_anterior):
                         raise ValueError(passos.ERROR_PREVIOUS_INCOMPLETE)
                     try:
@@ -630,10 +658,12 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
             except ModelBuilderError:
                 errors["base"] = "sensor_refused"
             except ValueError as error:
-                errors["base"] = (
-                    "swap_refused" if str(error) == "swap_refused"
-                    else _error_key(error)
-                )
+                if str(error) == "swap_refused":
+                    errors["base"] = "swap_refused"
+                elif str(error) == "correction_refused":
+                    errors["base"] = "correction_refused"
+                else:
+                    errors["base"] = _error_key(error)
             else:
                 return await self._async_save_model(novo)
         historico = passos.history_lines(modelo, unit_id)
@@ -648,16 +678,35 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
             erro_dela = errors.get("base") in (
                 "swap_refused", passos.ERROR_PREVIOUS_INCOMPLETE,
                 passos.ERROR_PREVIOUS_NEEDS_CURRENT, passos.ERROR_PREVIOUS_SAME,
+                "correction_refused", passos.ERROR_CORRECTION_INCOMPLETE,
+                passos.ERROR_CORRECTION_CONFIRM,
             )
+            campos: dict[Any, Any] = {}
+            registrados = passos.previous_meter_choices(modelo, unit_id)
+            if registrados:
+                # Uma seção só: o primeiro campo diz se é registrar um novo,
+                # apagar ou corrigir a data de um que já está na lista. Sem
+                # nada registrado, a seção fica como sempre foi.
+                campos[vol.Optional(F_ANT_ACAO, default=passos.PREVIOUS_ADD)] = (
+                    selector.SelectSelector(selector.SelectSelectorConfig(
+                        options=list(passos.PREVIOUS_ACTIONS),
+                        translation_key="acao_anterior",
+                    ))
+                )
+                campos[vol.Optional(F_ANT_REGISTRO)] = selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=registrados)
+                )
+            campos[vol.Optional(F_ANT_GRANDEZA)] = selector.SelectSelector(
+                selector.SelectSelectorConfig(options=grandezas)
+            )
+            campos[vol.Optional(F_ANT_SENSOR)] = _SENSOR
+            campos[vol.Optional(F_ANT_ATE)] = selector.DateTimeSelector()
+            if registrados:
+                campos[vol.Optional(F_ANT_CONFIRMA, default=False)] = (
+                    selector.BooleanSelector()
+                )
             esquema[vol.Optional(F_ANTERIOR)] = section(
-                vol.Schema({
-                    vol.Optional(F_ANT_GRANDEZA): selector.SelectSelector(
-                        selector.SelectSelectorConfig(options=grandezas)
-                    ),
-                    vol.Optional(F_ANT_SENSOR): _SENSOR,
-                    vol.Optional(F_ANT_ATE): selector.DateTimeSelector(),
-                }),
-                {"collapsed": not erro_dela},
+                vol.Schema(campos), {"collapsed": not erro_dela},
             )
         return self.async_show_form(
             step_id="sensores_unidade",

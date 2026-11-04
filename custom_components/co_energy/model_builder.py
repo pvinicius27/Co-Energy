@@ -647,6 +647,92 @@ def set_current_source(
     return novo
 
 
+def _fontes_anteriores(
+    model: Mapping[str, Any], unit_id: str, metric_id: str, index: Any
+) -> list[Any]:
+    """As fontes da série, conferindo que ``index`` é um medidor ANTERIOR.
+
+    O atual (a última fonte) nunca é alvo daqui: ele se corrige pelo campo do
+    sensor, e tirá-lo deixaria a série sem quem a alimenta hoje.
+    """
+    unidades = _unidades(model)
+    if unit_id not in unidades:
+        raise ModelBuilderError(f"unknown unit: {unit_id!r}")
+    series = unidades[unit_id].get("series")
+    if not isinstance(series, Mapping) or metric_id not in series:
+        raise ModelBuilderError(f"{unit_id} does not measure {metric_id!r}")
+    fontes = series[metric_id].get("sources")
+    if not isinstance(fontes, list) or len(fontes) < 2:
+        raise ModelBuilderError(f"{metric_id} has no previous meter")
+    if isinstance(index, bool) or not isinstance(index, int):
+        raise ModelBuilderError("the previous meter index must be an integer")
+    if not 0 <= index < len(fontes) - 1:
+        raise ModelBuilderError(f"{metric_id} has no previous meter #{index}")
+    return fontes
+
+
+def remove_previous_meter(
+    model: Mapping[str, Any], unit_id: str, metric_id: str, index: int
+) -> dict[str, Any]:
+    """Apagar um medidor anterior registrado por engano.
+
+    O trecho que era dele passa para o medidor SEGUINTE, que herda o início
+    do apagado. Sem isso sobraria um buraco no tempo que nenhum sensor cobre.
+    Apagar o primeiro faz o seguinte valer desde sempre — e, como passa a ser
+    o primeiro, deixa de descartar a primeira variação: não há troca antes
+    dele cuja diferença precise ser ignorada.
+    """
+    _fontes_anteriores(model, unit_id, metric_id, index)
+    novo = _copiar(model)
+    lista = novo["units"][unit_id]["series"][metric_id]["sources"]
+    apagado = lista.pop(index)
+    seguinte = dict(lista[index])
+    if isinstance(apagado, Mapping) and apagado.get("from"):
+        seguinte["from"] = apagado["from"]
+    else:
+        seguinte.pop("from", None)
+        seguinte.pop("skip_first_change", None)
+    lista[index] = seguinte
+    reconcile_unit_capabilities(novo["units"][unit_id])
+    _validar(novo)
+    return novo
+
+
+def move_previous_meter_cut(
+    model: Mapping[str, Any],
+    unit_id: str,
+    metric_id: str,
+    index: int,
+    at: datetime,
+) -> dict[str, Any]:
+    """Corrigir o "usado até" de um medidor anterior.
+
+    Muda as duas pontas juntas — o fim dele e o início do seguinte —, senão
+    os trechos se sobrepõem ou deixam um buraco. O corte cai na hora cheia,
+    como na troca, e precisa ficar dentro dos limites: depois do início do
+    medidor corrigido e antes do fim do seguinte.
+    """
+    fontes = _fontes_anteriores(model, unit_id, metric_id, index)
+    if not isinstance(at, datetime) or at.tzinfo is None:
+        raise ModelBuilderError("the cut must be an aware datetime")
+    corte = at.replace(minute=0, second=0, microsecond=0)
+    corrigido, seguinte = fontes[index], fontes[index + 1]
+    inicio = corrigido.get("from") if isinstance(corrigido, Mapping) else None
+    fim = seguinte.get("until") if isinstance(seguinte, Mapping) else None
+    if inicio and corte <= datetime.fromisoformat(str(inicio)):
+        raise ModelBuilderError("the cut must come after the meter started")
+    if fim and corte >= datetime.fromisoformat(str(fim)):
+        raise ModelBuilderError("the cut must come before the next meter ended")
+
+    novo = _copiar(model)
+    lista = novo["units"][unit_id]["series"][metric_id]["sources"]
+    texto = corte.isoformat()
+    lista[index] = {**lista[index], "until": texto}
+    lista[index + 1] = {**lista[index + 1], "from": texto}
+    _validar(novo)
+    return novo
+
+
 def remove_unit_series(
     model: Mapping[str, Any], unit_id: str, metric_id: str
 ) -> dict[str, Any]:

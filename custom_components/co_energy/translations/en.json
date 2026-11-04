@@ -148,14 +148,17 @@
         "sections": {
           "medidor_anterior": {
             "name": "Previous meter (meter replacement)",
-            "description": "Use when the physical meter was replaced: enter which sensor was used before and until when. Before that date the previous sensor counts; from it on, the current one.",
+            "description": "Use when the physical meter was replaced: enter which sensor was used before and until when. Before that date the previous sensor counts; from it on, the current one. Recorded it wrong? In \"What to do\", choose to delete or fix the date of one already recorded.",
             "data": {
+              "o_que_fazer": "What to do",
+              "registro": "Meter already recorded (to delete or fix)",
               "grandeza": "Quantity",
               "sensor_anterior": "Previous sensor",
-              "usado_ate": "Used until"
+              "usado_ate": "Used until",
+              "confirmar_correcao": "I confirm deleting or fixing"
             },
             "data_description": {
-              "usado_ate": "The cut falls on the full hour.\n\n**Previous meters already recorded:** {historico}"
+              "usado_ate": "The cut falls on the full hour. To fix the date, enter the new one here.\n\n**Previous meters already recorded:** {historico}"
             }
           }
         }
@@ -221,13 +224,25 @@
       "previous_same": "The previous sensor is the same as the current one.",
       "unit_without_meter": "This unit is marked as having no meter in Home Assistant. To add sensors, tick \"This unit has a meter in Home Assistant\" under Edit a unit.",
       "confirm_required": "Tick the confirmation to delete.",
-      "unit_has_share": "This unit holds {percentual}% of the distribution. Set it to zero under \"Credit distribution\" before deleting it — otherwise the others stop adding up to 100%."
+      "unit_has_share": "This unit holds {percentual}% of the distribution. Set it to zero under \"Credit distribution\" before deleting it — otherwise the others stop adding up to 100%.",
+      "correction_incomplete": "To delete or fix, pick the meter already recorded and, to fix the date, enter the new one in \"Used until\".",
+      "correction_confirm": "Tick \"I confirm deleting or fixing\" to change a meter already recorded.",
+      "correction_refused": "The correction was refused: the new date must be after this meter started and before the next one ended."
     },
     "abort": {
       "runtime_unavailable": "The integration has not finished loading. Try again in a few seconds.",
       "distribution_unavailable": "The stored distribution could not be read. See the Home Assistant log.",
       "save_failed": "Could not save. See the Home Assistant log.",
       "faturas_no_painel": "**Bills are read in the panel, not here.**\n\n1. Open **Gestão de Energia** in the sidebar.\n2. Go to the **Configuração** tab.\n3. Click **Extração de faturas** and pick the folder with the PDFs."
+    }
+  },
+  "selector": {
+    "acao_anterior": {
+      "options": {
+        "registrar": "Record a previous meter",
+        "remover": "Delete a recorded one (its period goes to the next meter)",
+        "mudar_data": "Fix the date of a recorded one"
+      }
     }
   }
 }
