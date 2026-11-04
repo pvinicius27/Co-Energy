@@ -224,7 +224,7 @@ def read_invoice_pdf(dados: bytes, nome: Any) -> tuple[dict[str, Any], str | Non
             # deixava de fora.
             if resultado.status == "ERRO":
                 raise InvoiceStorageError("could not read the invoice")
-            fatura = motor.resultado_para_v6(resultado)
+            fatura = motor.resultado_para_fatura(resultado)
         except InvoiceStorageError:
             raise
         except Exception as error:  # noqa: BLE001 - o motor pode falhar de mil jeitos

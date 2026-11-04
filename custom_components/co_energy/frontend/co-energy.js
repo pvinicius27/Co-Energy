@@ -1,10 +1,14 @@
 (() => {
   "use strict";
 
-  const CARD_TAG = "co-energy-overview-card-v6";
+  const CARD_TAG = "co-energy-overview-card";
+  //: Os nomes de antes seguem registrados como apelido: um dashboard que use
+  //: `custom:co-energy-overview-card-v6` continua abrindo o mesmo cartao.
+  const LEGACY_CARD_TAG = "co-energy-overview-card-v6";
+  const LEGACY_PANEL_TAG = "co-energy-panel-v6";
   //: O mesmo componente registrado como painel da barra lateral. O nome e
   //: acordado com `panel_custom` no backend: mudar aqui exige mudar la.
-  const PANEL_TAG = "co-energy-panel-v6";
+  const PANEL_TAG = "co-energy-panel";
   const API_VERSION = 1;
   const OVERVIEW_COMMAND = "co_energy/get_overview";
   const HISTORY_COMMAND = "co_energy/get_history";
@@ -36,7 +40,9 @@
   // Onde a tela aberta fica guardada entre recargas. So a aba e a unidade:
   // referencia de fatura e periodo dos graficos abrem sempre no mais
   // recente, de proposito.
-  const VIEW_STORAGE_KEY = "co-energy-v6:view";
+  const VIEW_STORAGE_KEY = "co-energy:view";
+  // A chave de antes, lida uma vez para ninguem perder a aba aberta.
+  const LEGACY_VIEW_STORAGE_KEY = "co-energy-v6:view";
   const SETTINGS_GET_COMMAND = "co_energy/get_settings";
   const SENSORS_GET_COMMAND = "co_energy/get_sensors";
   const MODEL_GET_COMMAND = "co_energy/get_model_config";
@@ -262,10 +268,10 @@
   // para /local/, que exigia copiar o bundle para `www` a mao — e `www` e
   // servido sem login.
   const CHART_MODULE_URL = new URL(
-    "./co-energy-chart-v6.js", import.meta.url,
+    "./co-energy-chart.js", import.meta.url,
   ).href;
   const ALLOWED_PERIODS = new Set(["hour", "5minute"]);
-  class CoEnergyOverviewCardV6 extends HTMLElement {
+  class CoEnergyOverviewCard extends HTMLElement {
     constructor() {
       super();
       this.attachShadow({ mode: "open" });
@@ -671,7 +677,8 @@
     // dados do site). Sem ele a tela abre no padrao, como sempre abriu.
     _readStoredView() {
       try {
-        const bruto = window.localStorage.getItem(VIEW_STORAGE_KEY);
+        const bruto = window.localStorage.getItem(VIEW_STORAGE_KEY)
+          ?? window.localStorage.getItem(LEGACY_VIEW_STORAGE_KEY);
         const dados = bruto ? JSON.parse(bruto) : null;
         return {
           page: typeof dados?.page === "string" ? dados.page : null,
@@ -5887,7 +5894,7 @@
       const brand = this._element("div", "brand");
       brand.append(
         this._element("h1", "brand-name", "Gestão de Energia"),
-        this._element("span", "brand-sub", "CoEnergy V6"),
+        this._element("span", "brand-sub", "CoEnergy"),
       );
       return brand;
     }
@@ -7392,7 +7399,7 @@
         const link = document.createElement("a");
         link.href = URL.createObjectURL(blob);
         const hoje = new Date().toISOString().slice(0, 10);
-        link.download = `faturas_energia_v6_${hoje}.json`;
+        link.download = `faturas_co_energy_${hoje}.json`;
         document.body.append(link);
         link.click();
         link.remove();
@@ -18423,7 +18430,7 @@
   }
 
   if (!customElements.get(CARD_TAG)) {
-    customElements.define(CARD_TAG, CoEnergyOverviewCardV6);
+    customElements.define(CARD_TAG, CoEnergyOverviewCard);
   }
 
   // O mesmo componente como painel proprio, servido pela integracao e
@@ -18435,7 +18442,7 @@
   // O cartao continua registrado acima: quem prefere a tela dentro de um
   // painel proprio, ao lado de outros cartoes da mesma unidade, seque
   // podendo. Painel e cartao nao se excluem.
-  class CoEnergyPanelV6 extends HTMLElement {
+  class CoEnergyPanel extends HTMLElement {
     set hass(hass) {
       this._conteudo().hass = hass;
     }
@@ -18463,7 +18470,7 @@
         // O cartao exige configuracao, e como painel nao ha painel do
         // Lovelace para escreve-la: vale o mesmo exemplo que o Home
         // Assistant oferece ao adicionar o cartao a mao.
-        this._carta.setConfig(CoEnergyOverviewCardV6.getStubConfig());
+        this._carta.setConfig(CoEnergyOverviewCard.getStubConfig());
         this.appendChild(this._carta);
       }
       return this._carta;
@@ -18471,15 +18478,22 @@
   }
 
   if (!customElements.get(PANEL_TAG)) {
-    customElements.define(PANEL_TAG, CoEnergyPanelV6);
+    customElements.define(PANEL_TAG, CoEnergyPanel);
+  }
+  // Uma classe so nao pode ter dois nomes: o apelido e uma subclasse vazia.
+  if (!customElements.get(LEGACY_CARD_TAG)) {
+    customElements.define(LEGACY_CARD_TAG, class extends CoEnergyOverviewCard {});
+  }
+  if (!customElements.get(LEGACY_PANEL_TAG)) {
+    customElements.define(LEGACY_PANEL_TAG, class extends CoEnergyPanel {});
   }
 
   window.customCards = window.customCards || [];
   if (!window.customCards.some((card) => card.type === CARD_TAG)) {
     window.customCards.push({
       type: CARD_TAG,
-      name: "CoEnergy Overview V6",
-      description: "Visão geral por unidade da Gestão de Energia V6.",
+      name: "CoEnergy Overview",
+      description: "Visão geral por unidade da Gestão de Energia.",
     });
   }
 })();

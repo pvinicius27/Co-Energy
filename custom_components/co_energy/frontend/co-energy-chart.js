@@ -24421,7 +24421,7 @@ function gR(e) {
 	e.registerPainter("svg", pR);
 }
 //#endregion
-//#region src/frontend/co-energy-chart-v6.js
+//#region src/frontend/co-energy-chart.js
 sA([
 	vw,
 	zb,

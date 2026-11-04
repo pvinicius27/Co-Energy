@@ -62,7 +62,8 @@ def parse_equatorial_document(raw: Any) -> EquatorialDocument:
 
 #: O prefixo que o extrator mistura ao numero antes do hash. Ele e parte do
 #: contrato com o extrator, nao um detalhe daqui: mudar um lado sem o outro
-#: faz toda fatura deixar de ter dono.
+#: faz toda fatura deixar de ter dono. O "v6" nao e versao do projeto: e
+#: parte fixa da chave, e fica para sempre.
 UC_HASH_SALT = "equatorial-v6:"
 UC_HASH_PREFIX = "sha256:"
 _DIGITOS = frozenset("0123456789")

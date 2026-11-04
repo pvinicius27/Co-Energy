@@ -31,12 +31,12 @@ URL_BASE = f"/{DOMAIN}_frontend"
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 
 #: O módulo que registra o cartão e o painel.
-MODULE_FILE = "co-energy-v6.js"
+MODULE_FILE = "co-energy.js"
 
 #: Endereço do painel e nome do componente. O nome é acordado com o módulo:
 #: mudar aqui exige mudar lá.
 PANEL_URL_PATH = "co-energy"
-PANEL_COMPONENT = "co-energy-panel-v6"
+PANEL_COMPONENT = "co-energy-panel"
 
 #: Marca que a tela já foi registrada neste Home Assistant. Registro de painel
 #: é global e vale para o processo; recarregar a entrada não pode tentar

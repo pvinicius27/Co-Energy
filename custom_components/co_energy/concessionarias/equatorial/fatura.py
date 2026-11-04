@@ -1,6 +1,6 @@
-"""Normalizacao v6 das faturas Equatorial Goias.
+"""Normalizacao das faturas Equatorial Goias.
 
-Veio de ``equatorial_v6.py``, o extrator que rodava no Windows. As regras sao
+Veio do extrator que rodava no Windows. As regras sao
 as mesmas; mudou quem responde "de quem e esta fatura". La, uma lista fixa de
 UCs no proprio codigo. Aqui, o modelo de quem instalou: ``montar_documento``
 recebe as unidades e o dono de cada UC, e a fatura de UC sem dono vai para
@@ -178,6 +178,9 @@ def hash_identificador(valor: Optional[str]) -> Optional[str]:
     if not valor:
         return None
     normalizado = re.sub(r"\D", "", str(valor))
+    # "equatorial-v6:" nao e versao: e a chave fixa do codigo das UCs. As
+    # faturas guardadas so tem esse codigo; mudar uma letra aqui faz todas
+    # perderem o dono. Igual a ``UC_HASH_SALT`` em ``equatorial_adapter``.
     return "sha256:" + hashlib.sha256(("equatorial-v6:" + normalizado).encode()).hexdigest()
 
 
@@ -605,7 +608,7 @@ def extrair_avisos_tecnicos(texto: str) -> List[str]:
     return avisos
 
 
-def extrair_scee_v6(resultado: ResultadoSCEE, itens: List[Dict[str, Any]]) -> Dict[str, Any]:
+def extrair_scee(resultado: ResultadoSCEE, itens: List[Dict[str, Any]]) -> Dict[str, Any]:
     def valor_item(codigo: str) -> Optional[str]:
         for item in itens:
             if item["codigo"] == codigo:
@@ -724,7 +727,7 @@ def validar_fatura(fatura: Dict[str, Any]) -> Tuple[str, Dict[str, Any], List[st
     return status, validacoes, alertas
 
 
-def resultado_para_v6(resultado: ResultadoSCEE) -> Dict[str, Any]:
+def resultado_para_fatura(resultado: ResultadoSCEE) -> Dict[str, Any]:
     caminho = Path(resultado.arquivo).resolve()
     paginas_texto, texto = ler_pdf(caminho)
     paginas = len(paginas_texto)
@@ -789,7 +792,7 @@ def resultado_para_v6(resultado: ResultadoSCEE) -> Dict[str, Any]:
             "creditos_financeiros": numero_json(sum((decimal_br(x["valor"]) or Decimal("0")) for x in itens if x["categoria"] == "credito_financeiro"), 2) or None,
             "servicos": None, "outros": None,
         },
-        "scee": extrair_scee_v6(resultado, itens),
+        "scee": extrair_scee(resultado, itens),
         "qualidade_fornecimento": extrair_qualidade(texto, fornecimento),
         "extracao": {
             "status": None, "alertas": list(resultado.alertas or []),
@@ -848,7 +851,7 @@ def processar_pdf(caminho_pdf: str) -> ResultadoSCEE:
         if not resultado.alertas and resultado.status == "COM ALERTA":
             resultado.status = "OK"
     except Exception as erro:
-        resultado.alertas.append(f"Enriquecimento v6 incompleto: {type(erro).__name__}")
+        resultado.alertas.append(f"Enriquecimento incompleto: {type(erro).__name__}")
         if resultado.status == "OK":
             resultado.status = "COM ALERTA"
     return resultado
@@ -1001,13 +1004,13 @@ def reconciliar_periodos_unidade(faturas: List[Dict[str, Any]]) -> None:
 
 
 def ler_fatura(caminho_pdf: str) -> Dict[str, Any]:
-    """Le um PDF e devolve a fatura v6 interna, sem dono.
+    """Le um PDF e devolve a fatura interna, sem dono.
 
     "Interna" porque ainda carrega o que a consolidacao da unidade usa — o
     historico impresso e o fornecimento. ``montar_documento`` tira esses
     campos antes de publicar.
     """
-    return resultado_para_v6(processar_pdf(caminho_pdf))
+    return resultado_para_fatura(processar_pdf(caminho_pdf))
 
 
 def montar_documento(
@@ -1016,7 +1019,7 @@ def montar_documento(
     dono_por_uc: Dict[str, str],
     iniciado_em: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Monta o documento v6 a partir das faturas lidas e de quem e cada UC.
+    """Monta o documento a partir das faturas lidas e de quem e cada UC.
 
     Era ``montar_json_faturas``, que perguntava a uma lista fixa de quem era
     cada fatura. Agora ``unidades`` traz o id e o nome de cada unidade do

@@ -60,7 +60,7 @@ coisa depois, use **Configurar** na página da integração: unidades, sensores
 As faturas em PDF são lidas pela própria tela, na aba Configuração. Nada disso
 exige editar YAML.
 
-A tela também está disponível como cartão (`co-energy-overview-card-v6`) para
+A tela também está disponível como cartão (`co-energy-overview-card`) para
 quem prefere montá-la num painel próprio.
 
 ## O que ela não faz
