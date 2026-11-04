@@ -8503,7 +8503,9 @@
     // da fatura (bloco `official` do SCEE) — nada e recalculado aqui, nem
     // estimado quando falta. A barra e a leitura da proporcao; o texto abaixo
     // e a mesma informacao em linguagem de conta de luz, para quem so quer
-    // saber quanto pagou e por que.
+    // saber quanto pagou e por que. A unica excecao e a linha do consumo
+    // total da geradora, que soma o autoconsumo medido pelos sensores e diz
+    // isso no proprio texto.
     _renderConsumptionComposition() {
       const section = this._element("section", "panel composition-panel");
       section.dataset.compositionPanel = "";
@@ -8649,6 +8651,8 @@
             ? ` e ${this._formatSceeEnergy(naoCompensado)} não compensados${custoNaoCompensado}.`
             : ", sem nenhum kWh fora da compensação."),
         );
+        const totalReal = this._compositionTotalLine(total, reference);
+        if (totalReal) frases.push(totalReal);
       } else {
         frases.push(
           `${nome} consumiu ${this._formatSceeEnergy(total)} no ciclo ${reference}: `
@@ -8716,6 +8720,10 @@
       }
       const texto = this._element("div", "composition-text");
       for (const frase of frases) {
+        if (frase instanceof Node) {
+          texto.append(frase);
+          continue;
+        }
         const linha = this._element("p", "");
         linha.append(this._emphasizeValues(frase));
         texto.append(linha);
@@ -8917,6 +8925,48 @@
     //
     // Monta nos de texto, nunca innerHTML: a frase carrega nome de unidade e
     // valores formatados, e nada disso deveria poder virar marcacao.
+    // O consumo da fatura e so o que veio da rede. Na geradora, a energia
+    // gerada e usada na hora nao passa pelo medidor da concessionaria, e o
+    // consumo de verdade da casa e a soma das duas. O autoconsumo vem dos
+    // sensores (o mesmo endpoint do diagnostico de qualidade, no periodo de
+    // leitura da fatura), por isso a linha diz de onde sai cada parte e avisa
+    // quando os sensores nao cobriram o ciclo. Sem dado, nao ha linha.
+    _compositionTotalLine(daRede, referencia) {
+      if (!referencia || !(daRede >= 0)) return null;
+      const evidencia = this._qualityEvidence.get(referencia);
+      if (!evidencia) {
+        // Erro nao tenta de novo: cada tentativa redesenha a composicao.
+        if (!this._qualityInFlight.has(referencia) && !this._qualityErrors.has(referencia)) {
+          queueMicrotask(() => this._loadQualityEvidence(referencia));
+        }
+        return null;
+      }
+      const bruto = evidencia?.energy?.self_consumption_kwh;
+      const autoconsumo = bruto === null || bruto === undefined ? NaN : Number(bruto);
+      if (evidencia.status === "unavailable" || !Number.isFinite(autoconsumo)) return null;
+      if (autoconsumo <= 0.005) return null;
+      const linha = this._element("p", "composition-total-line");
+      linha.append(
+        "↳ Consumo total da unidade: ",
+        this._element("strong", "", this._formatSceeEnergy(daRede + autoconsumo)),
+        ` — ${this._formatSceeEnergy(daRede)} da rede (fatura) + `
+          + `${this._formatSceeEnergy(autoconsumo)} de autoconsumo, usado na hora `
+          + "e medido pelos sensores; não passa pelo medidor da concessionária.",
+      );
+      if (evidencia.status === "partial") {
+        linha.append(
+          " ",
+          this._element(
+            "span",
+            "composition-total-partial",
+            "Parcial: os sensores não cobriram o ciclo inteiro, então o "
+              + "autoconsumo tende a estar abaixo do real.",
+          ),
+        );
+      }
+      return linha;
+    }
+
     _emphasizeValues(texto) {
       const fragmento = document.createDocumentFragment();
       const padrao = /(R\$\s?\d[\d.]*(?:,\d+)?|\d[\d.]*(?:,\d+)?\s?kWh)/g;
@@ -9498,6 +9548,11 @@
         }
         if (this._qualityModal?.reference === referencia) {
           this._renderDistributionModalUpdate();
+        }
+        // A linha do consumo total no "Entenda a conta" le esta mesma resposta.
+        if (configGeneration === this._configGeneration
+          && this._sceeReference() === referencia) {
+          this._renderCompositionUpdate();
         }
       });
       this._qualityInFlight.set(referencia, request);
@@ -17611,6 +17666,14 @@
         /* O valor em branco cheio contra o texto em cinza: e ele que se quer
            encontrar relendo a frase. */
         .composition-text strong { color: var(--ink); font-weight: 700; }
+        /* Detalhe do "Consumiu": recuada e mais apagada, para nao competir
+           com a explicacao da fatura; so o total fica em destaque. */
+        .composition-text p.composition-total-line {
+          margin: -3px 0 0 14px;
+          color: var(--muted);
+          font-size: 12.5px;
+        }
+        .composition-total-partial { color: var(--sev-warn); }
 
         /* ---------------- Graficos lado a lado ---------------- */
         .charts-row {
