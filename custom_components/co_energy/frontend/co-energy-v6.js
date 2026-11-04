@@ -8919,18 +8919,13 @@
       return caixa;
     }
 
-    // Destaca as grandezas do texto: energia em kWh e dinheiro em reais.
-    // Percentual fica de fora de proposito — ele qualifica um numero que ja
-    // esta em negrito ao lado, e destacar os dois nao destaca nenhum.
-    //
-    // Monta nos de texto, nunca innerHTML: a frase carrega nome de unidade e
-    // valores formatados, e nada disso deveria poder virar marcacao.
     // O consumo da fatura e so o que veio da rede. Na geradora, a energia
     // gerada e usada na hora nao passa pelo medidor da concessionaria, e o
     // consumo de verdade da casa e a soma das duas. O autoconsumo vem dos
     // sensores (o mesmo endpoint do diagnostico de qualidade, no periodo de
-    // leitura da fatura), por isso a linha diz de onde sai cada parte e avisa
-    // quando os sensores nao cobriram o ciclo. Sem dado, nao ha linha.
+    // leitura da fatura). Sem dado, nao ha linha. Ciclo parcial nao ganha
+    // aviso aqui de proposito: a linha fala so de consumo, e a cobertura dos
+    // sensores e assunto da auditoria.
     _compositionTotalLine(daRede, referencia) {
       if (!referencia || !(daRede >= 0)) return null;
       const evidencia = this._qualityEvidence.get(referencia);
@@ -8950,22 +8945,17 @@
         "↳ Consumo total da unidade: ",
         this._element("strong", "", this._formatSceeEnergy(daRede + autoconsumo)),
         ` — ${this._formatSceeEnergy(daRede)} da rede (fatura) + `
-          + `${this._formatSceeEnergy(autoconsumo)} de autoconsumo, usado na hora `
-          + "e medido pelos sensores; não passa pelo medidor da concessionária.",
+          + `${this._formatSceeEnergy(autoconsumo)} de autoconsumo.`,
       );
-      if (evidencia.status === "partial") {
-        linha.append(
-          " ",
-          this._element(
-            "span",
-            "composition-total-partial",
-            "Parcial: os sensores não cobriram o ciclo inteiro, então o "
-              + "autoconsumo tende a estar abaixo do real.",
-          ),
-        );
-      }
       return linha;
     }
+
+    // Destaca as grandezas do texto: energia em kWh e dinheiro em reais.
+    // Percentual fica de fora de proposito — ele qualifica um numero que ja
+    // esta em negrito ao lado, e destacar os dois nao destaca nenhum.
+    //
+    // Monta nos de texto, nunca innerHTML: a frase carrega nome de unidade e
+    // valores formatados, e nada disso deveria poder virar marcacao.
 
     _emphasizeValues(texto) {
       const fragmento = document.createDocumentFragment();
@@ -17673,7 +17663,6 @@
           color: var(--muted);
           font-size: 12.5px;
         }
-        .composition-total-partial { color: var(--sev-warn); }
 
         /* ---------------- Graficos lado a lado ---------------- */
         .charts-row {
