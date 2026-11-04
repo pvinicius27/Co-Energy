@@ -31,7 +31,7 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import FlowResult, section
+from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import selector
 from homeassistant.util import dt as dt_util
 
@@ -76,13 +76,12 @@ F_LIMPAR = "limpar"
 F_CONFIRMA_TARIFA = "confirmar_diferente"
 F_HORA = "horario"
 F_CONFIRMA = "confirmar"
-F_ANTERIOR = "medidor_anterior"
 F_ANT_GRANDEZA = "grandeza"
 F_ANT_SENSOR = "sensor_anterior"
-F_ANT_ATE = "usado_ate"
-F_ANT_ACAO = "o_que_fazer"
+F_ANT_DIA = "data"
+F_ANT_HORA = "hora"
 F_ANT_REGISTRO = "registro"
-F_ANT_CONFIRMA = "confirmar_correcao"
+F_ANT_APAGAR = "apagar"
 
 _SENSOR = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
 
@@ -344,8 +343,7 @@ _KNOWN_ERRORS = {
     passos.ERROR_TARIFF_DIFFERS,
     passos.ERROR_HISTORY_KEEP,
     passos.ERROR_PREVIOUS_INCOMPLETE, passos.ERROR_PREVIOUS_NEEDS_CURRENT,
-    passos.ERROR_PREVIOUS_SAME,
-    passos.ERROR_CORRECTION_INCOMPLETE, passos.ERROR_CORRECTION_CONFIRM,
+    passos.ERROR_PREVIOUS_SAME, passos.ERROR_PREVIOUS_UNKNOWN,
 }
 
 
@@ -364,6 +362,7 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
     def __init__(self) -> None:
         self._unit_id: str | None = None
         self._pending: dict[str, Any] | None = None
+        self._registro: str | None = None
 
     # -- acesso ao que está rodando ------------------------------------
 
@@ -376,18 +375,30 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
         runtime = self._runtime()
         return dict(runtime.declared_model or runtime.model)
 
-    def _finish(self, *, reload: bool = True) -> FlowResult:
-        """Fecha o passo; recarregar faz o painel ver o que mudou.
+    async def _async_done(
+        self, *, reload: bool = True, back: Any = None
+    ) -> FlowResult:
+        """Gravou: recarrega e VOLTA, em vez de fechar a janela.
 
-        As opções da entrada não mudam — o que muda mora no storage —, e por
-        isso o recarregamento é pedido aqui, e não deixado para o ouvinte de
-        atualização, que só dispara quando as opções mudam.
+        Fechar a cada "Enviar" obrigava a abrir Configurar de novo e refazer o
+        caminho para mudar a segunda coisa. Agora a pessoa volta ao menu (ou à
+        tela de onde veio) e sai pelo "Concluir".
+
+        O recarregamento é ESPERADO aqui, e não agendado: a tela seguinte lê o
+        runtime, e um runtime no meio da recarga não existe. Recarregar não
+        derruba esta janela — o Home Assistant só aborta fluxos de reauth.
+        As opções da entrada não mudam (o que muda mora no storage), por isso
+        o pedido é explícito, e não deixado ao ouvinte de atualização.
         """
         if reload:
-            self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
-        return self.async_create_entry(data=dict(self.config_entry.options))
+            await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+        if back is not None:
+            return await back()
+        return await self.async_step_init()
 
-    async def _async_save_model(self, novo: Mapping[str, Any]) -> FlowResult:
+    async def _async_save_model(
+        self, novo: Mapping[str, Any], *, back: Any = None
+    ) -> FlowResult:
         try:
             await self._runtime().model_manager.async_save(
                 dict(novo), now=dt_util.now()
@@ -396,7 +407,13 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
             _LOGGER.error("Could not persist the energy model", exc_info=True)
             return self.async_abort(reason="save_failed")
         self._pending = None
-        return self._finish()
+        return await self._async_done(back=back)
+
+    async def async_step_concluir(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Fecha a janela. O que foi salvo já está gravado e recarregado."""
+        return self.async_create_entry(data=dict(self.config_entry.options))
 
     # -- menu ----------------------------------------------------------
 
@@ -612,110 +629,207 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
         errors: dict[str, str] = {}
         if user_input is not None:
             medida = unidade.get("measured") is not False
-            anterior = user_input.get(F_ANTERIOR) or {}
-            campos_anterior = (F_ANT_GRANDEZA, F_ANT_SENSOR, F_ANT_ATE)
-            acao = anterior.get(F_ANT_ACAO) or passos.PREVIOUS_ADD
             try:
                 if medida and not passos.has_any_choice(modelo, unit_id, user_input):
                     raise ValueError(passos.ERROR_SENSOR_REQUIRED)
                 novo = passos.apply_sensor_choices(modelo, unit_id, user_input)
-                if acao != passos.PREVIOUS_ADD:
-                    # Apagar ou corrigir a data de um já registrado. O
-                    # registro aponta para a posição que ele tem AGORA, a
-                    # da lista mostrada; "Usado até" é a data nova.
-                    if not anterior.get(F_ANT_CONFIRMA):
-                        raise ValueError(passos.ERROR_CORRECTION_CONFIRM)
-                    quando = None
-                    if acao == passos.CORRECTION_MOVE:
-                        try:
-                            quando = passos.swap_instant(
-                                anterior.get(F_ANT_ATE),
-                                dt_util.get_default_time_zone(),
-                            )
-                        except ValueError as error:
-                            raise ValueError(
-                                passos.ERROR_CORRECTION_INCOMPLETE
-                            ) from error
-                    try:
-                        novo = passos.apply_previous_correction(
-                            novo, unit_id, anterior.get(F_ANT_REGISTRO), acao, quando,
-                        )
-                    except ModelBuilderError as error:
-                        raise ValueError("correction_refused") from error
-                elif any(anterior.get(k) for k in campos_anterior):
-                    if not all(anterior.get(k) for k in campos_anterior):
-                        raise ValueError(passos.ERROR_PREVIOUS_INCOMPLETE)
-                    try:
-                        novo = passos.add_previous_meter(
-                            novo, unit_id, anterior[F_ANT_GRANDEZA],
-                            anterior[F_ANT_SENSOR],
-                            passos.swap_instant(
-                                anterior[F_ANT_ATE], dt_util.get_default_time_zone()
-                            ),
-                        )
-                    except ModelBuilderError as error:
-                        raise ValueError("swap_refused") from error
             except ModelBuilderError:
                 errors["base"] = "sensor_refused"
             except ValueError as error:
-                if str(error) == "swap_refused":
-                    errors["base"] = "swap_refused"
-                elif str(error) == "correction_refused":
-                    errors["base"] = "correction_refused"
-                else:
-                    errors["base"] = _error_key(error)
+                errors["base"] = _error_key(error)
             else:
                 return await self._async_save_model(novo)
-        historico = passos.history_lines(modelo, unit_id)
-        esquema = dict(_sensor_schema(modelo, unit_id).schema)
-        grandezas = [
-            {"value": c["metric"], "label": c["label"]}
-            for c in passos.sensor_fields(modelo, unit_id) if c["kind"] == "energy"
-        ]
-        if grandezas:
-            # Recolhida: quase nunca se usa, e aberta pareceria obrigatória.
-            # Abre sozinha quando o erro é dela, para a pessoa ver o que falta.
-            erro_dela = errors.get("base") in (
-                "swap_refused", passos.ERROR_PREVIOUS_INCOMPLETE,
-                passos.ERROR_PREVIOUS_NEEDS_CURRENT, passos.ERROR_PREVIOUS_SAME,
-                "correction_refused", passos.ERROR_CORRECTION_INCOMPLETE,
-                passos.ERROR_CORRECTION_CONFIRM,
-            )
-            campos: dict[Any, Any] = {}
-            registrados = passos.previous_meter_choices(modelo, unit_id)
-            if registrados:
-                # Uma seção só: o primeiro campo diz se é registrar um novo,
-                # apagar ou corrigir a data de um que já está na lista. Sem
-                # nada registrado, a seção fica como sempre foi.
-                campos[vol.Optional(F_ANT_ACAO, default=passos.PREVIOUS_ADD)] = (
-                    selector.SelectSelector(selector.SelectSelectorConfig(
-                        options=list(passos.PREVIOUS_ACTIONS),
-                        translation_key="acao_anterior",
-                    ))
-                )
-                campos[vol.Optional(F_ANT_REGISTRO)] = selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=registrados)
-                )
-            campos[vol.Optional(F_ANT_GRANDEZA)] = selector.SelectSelector(
-                selector.SelectSelectorConfig(options=grandezas)
-            )
-            campos[vol.Optional(F_ANT_SENSOR)] = _SENSOR
-            campos[vol.Optional(F_ANT_ATE)] = selector.DateTimeSelector()
-            if registrados:
-                campos[vol.Optional(F_ANT_CONFIRMA, default=False)] = (
-                    selector.BooleanSelector()
-                )
-            esquema[vol.Optional(F_ANTERIOR)] = section(
-                vol.Schema(campos), {"collapsed": not erro_dela},
-            )
         return self.async_show_form(
             step_id="sensores_unidade",
-            data_schema=vol.Schema(esquema),
+            data_schema=_sensor_schema(modelo, unit_id),
             errors=errors,
             description_placeholders={
                 "unidade": str(unidade.get("name")),
                 "dica": _role_hint(unidade.get("role") == ROLE_GENERATOR),
-                "historico": passos.markdown_list(historico, "nenhum."),
+            },
+        )
+
+    # -- medidores anteriores (troca de medidor) -------------------------
+    #
+    # Escolher e editar, em vez de um formulário com "o que fazer": a lista
+    # mostra o que existe, e cada medidor abre já preenchido. Salvar volta
+    # à lista. A tela do Home Assistant não tem lápis por linha; isto é o
+    # mais perto disso que ela permite.
+
+    async def async_step_medidores(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Qual unidade — pulada quando só uma tem sensor de energia."""
+        unidades = passos.units_with_meters(self._model())
+        if user_input is not None:
+            self._unit_id = user_input[F_UNIDADE]
+            return await self.async_step_medidores_unidade()
+        if len(unidades) == 1:
+            self._unit_id = unidades[0]["value"]
+            return await self.async_step_medidores_unidade()
+        return self.async_show_form(
+            step_id="medidores",
+            last_step=False,
+            data_schema=vol.Schema({
+                vol.Required(F_UNIDADE): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=unidades)
+                ),
+            }),
+        )
+
+    async def async_step_medidores_unidade(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """A lista da unidade e o que dá para fazer com ela."""
+        modelo = self._model()
+        unit_id = self._unit_id or ""
+        opcoes = ["medidor_novo"]
+        if passos.previous_meter_choices(modelo, unit_id):
+            opcoes.append("medidor_editar")
+        opcoes.append("init")
+        return self.async_show_menu(
+            step_id="medidores_unidade",
+            menu_options=opcoes,
+            description_placeholders={
+                "unidade": str(modelo["units"][unit_id].get("name")),
+                "historico": passos.markdown_list(
+                    passos.history_lines(modelo, unit_id), "nenhum."
+                ),
+            },
+        )
+
+    def _hora_e_dia(self, dia: Any = None, hora: Any = None) -> dict[Any, Any]:
+        return {
+            vol.Required(F_ANT_DIA, description={"suggested_value": dia}):
+                selector.DateSelector(),
+            vol.Required(F_ANT_HORA, description={"suggested_value": hora}):
+                selector.SelectSelector(selector.SelectSelectorConfig(
+                    options=passos.hour_options(),
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )),
+        }
+
+    async def async_step_medidor_novo(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Registrar o sensor que a grandeza usava antes do atual."""
+        modelo = self._model()
+        unit_id = self._unit_id or ""
+        errors: dict[str, str] = {}
+        entrada = user_input or {}
+        if user_input is not None:
+            try:
+                quando = passos.cut_instant(
+                    entrada.get(F_ANT_DIA), entrada.get(F_ANT_HORA),
+                    dt_util.get_default_time_zone(),
+                )
+                novo = passos.add_previous_meter(
+                    modelo, unit_id, entrada.get(F_ANT_GRANDEZA),
+                    entrada.get(F_ANT_SENSOR), quando,
+                )
+            except ModelBuilderError:
+                errors["base"] = "swap_refused"
+            except ValueError as error:
+                errors["base"] = _error_key(error)
+            else:
+                return await self._async_save_model(
+                    novo, back=self.async_step_medidores_unidade
+                )
+        grandezas = [
+            {"value": c["metric"], "label": c["label"]}
+            for c in passos.sensor_fields(modelo, unit_id)
+            if c["kind"] == "energy" and c["current"]
+        ]
+        return self.async_show_form(
+            step_id="medidor_novo",
+            data_schema=vol.Schema({
+                vol.Required(
+                    F_ANT_GRANDEZA,
+                    description={"suggested_value": entrada.get(F_ANT_GRANDEZA)},
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=grandezas)
+                ),
+                vol.Required(
+                    F_ANT_SENSOR,
+                    description={"suggested_value": entrada.get(F_ANT_SENSOR)},
+                ): _SENSOR,
+                **self._hora_e_dia(entrada.get(F_ANT_DIA), entrada.get(F_ANT_HORA)),
+            }),
+            errors=errors,
+            description_placeholders={
+                "unidade": str(modelo["units"][unit_id].get("name")),
+            },
+        )
+
+    async def async_step_medidor_editar(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Qual dos registrados corrigir."""
+        modelo = self._model()
+        unit_id = self._unit_id or ""
+        if user_input is not None:
+            self._registro = user_input[F_ANT_REGISTRO]
+            return await self.async_step_medidor_dados()
+        return self.async_show_form(
+            step_id="medidor_editar",
+            last_step=False,
+            data_schema=vol.Schema({
+                vol.Required(F_ANT_REGISTRO): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=passos.previous_meter_choices(modelo, unit_id)
+                    )
+                ),
+            }),
+            description_placeholders={
+                "unidade": str(modelo["units"][unit_id].get("name")),
+            },
+        )
+
+    async def async_step_medidor_dados(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """O medidor escolhido, já preenchido: corrigir ou apagar."""
+        modelo = self._model()
+        unit_id = self._unit_id or ""
+        errors: dict[str, str] = {}
+        try:
+            atual = passos.previous_meter(modelo, unit_id, self._registro)
+        except ValueError:
+            return await self.async_step_medidores_unidade()
+        if user_input is not None:
+            try:
+                apagar = bool(user_input.get(F_ANT_APAGAR))
+                quando = None if apagar else passos.cut_instant(
+                    user_input.get(F_ANT_DIA), user_input.get(F_ANT_HORA),
+                    dt_util.get_default_time_zone(),
+                )
+                novo = passos.edit_previous_meter(
+                    modelo, unit_id, self._registro,
+                    entity=user_input.get(F_ANT_SENSOR), until=quando,
+                    delete=apagar,
+                )
+            except ModelBuilderError:
+                errors["base"] = "correction_refused"
+            except ValueError as error:
+                errors["base"] = _error_key(error)
+            else:
+                return await self._async_save_model(
+                    novo, back=self.async_step_medidores_unidade
+                )
+        dia, hora = passos.split_instant(atual["until"])
+        return self.async_show_form(
+            step_id="medidor_dados",
+            data_schema=vol.Schema({
+                vol.Required(
+                    F_ANT_SENSOR, description={"suggested_value": atual["entity_id"]}
+                ): _SENSOR,
+                **self._hora_e_dia(dia, hora),
+                vol.Optional(F_ANT_APAGAR, default=False): selector.BooleanSelector(),
+            }),
+            errors=errors,
+            description_placeholders={
+                "grandeza": str(atual["label"]),
+                "sensor": str(atual["entity_id"]),
             },
         )
 
@@ -763,7 +877,7 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
             else:
                 # O gerenciador de rateio é o mesmo que o runtime usa: nada a
                 # recarregar, e recarregar tiraria a pessoa da tela à toa.
-                return self._finish(reload=False)
+                return await self._async_done(reload=False)
         atuais: Mapping[str, Any] = {}
         if manager.data.rules:
             atuais = manager.data.rules[-1].shares
@@ -859,7 +973,7 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
                 if not user_input.get(F_VIGENCIA):
                     if bruto not in (None, ""):
                         raise ValueError(passos.ERROR_TARIFF_DATE_REQUIRED)
-                    return self._finish()
+                    return await self._async_done()
                 vigencia = date.fromisoformat(str(user_input.get(F_VIGENCIA)))
                 if bruto in (None, ""):
                     atuais.pop(vigencia, None)
@@ -886,7 +1000,7 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
             except ValueError as error:
                 errors["base"] = _error_key(error)
             else:
-                return self._finish()
+                return await self._async_done()
         vigente = passos.current_tariff(atuais)
         sugestao = passos.tariff_suggestion(impressas)
         if vigente is None and sugestao is not None:
@@ -953,7 +1067,7 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
             try:
                 if user_input.get(F_LIMPAR):
                     await self._async_update_settings(solar_investment=None)
-                    return self._finish()
+                    return await self._async_done()
                 # Sem valor, nada muda aqui: quem veio so pela tarifa segue.
                 if user_input.get(F_VALOR) not in (None, ""):
                     await self._async_update_settings(solar_investment={
@@ -1020,7 +1134,7 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
             except ValueError as error:
                 errors["base"] = _error_key(error)
             else:
-                return self._finish()
+                return await self._async_done()
         return self.async_show_form(
             step_id="horario",
             data_schema=vol.Schema({

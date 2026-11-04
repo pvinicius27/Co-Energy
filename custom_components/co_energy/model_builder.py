@@ -724,11 +724,41 @@ def move_previous_meter_cut(
     if fim and corte >= datetime.fromisoformat(str(fim)):
         raise ModelBuilderError("the cut must come before the next meter ended")
 
+    if inicio is None and index > 0:
+        raise ModelBuilderError(f"{metric_id} has an unreadable source")
+
     novo = _copiar(model)
     lista = novo["units"][unit_id]["series"][metric_id]["sources"]
     texto = corte.isoformat()
     lista[index] = {**lista[index], "until": texto}
     lista[index + 1] = {**lista[index + 1], "from": texto}
+    _validar(novo)
+    return novo
+
+
+def set_previous_meter_entity(
+    model: Mapping[str, Any],
+    unit_id: str,
+    metric_id: str,
+    index: int,
+    entity_id: str,
+) -> dict[str, Any]:
+    """Corrigir QUAL sensor era o medidor anterior, sem mexer nas datas.
+
+    Para quem escolheu o sensor errado ao registrar. Recusa repetir o sensor
+    do medidor seguinte: dois trechos seguidos do mesmo sensor não são troca
+    nenhuma, e a primeira variação do seguinte seria descartada à toa.
+    """
+    fontes = _fontes_anteriores(model, unit_id, metric_id, index)
+    if not isinstance(entity_id, str) or not entity_id.strip():
+        raise ModelBuilderError("entity_id must be a non-empty string")
+    seguinte = fontes[index + 1]
+    if isinstance(seguinte, Mapping) and seguinte.get("entity_id") == entity_id.strip():
+        raise ModelBuilderError("the previous meter is the same as the next one")
+
+    novo = _copiar(model)
+    lista = novo["units"][unit_id]["series"][metric_id]["sources"]
+    lista[index] = {**lista[index], "entity_id": entity_id.strip()}
     _validar(novo)
     return novo
 

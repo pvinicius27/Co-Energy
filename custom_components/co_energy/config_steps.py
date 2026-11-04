@@ -28,6 +28,7 @@ from .model_builder import (
     metrics_for_role,
     move_previous_meter_cut,
     remove_previous_meter,
+    set_previous_meter_entity,
     remove_unit_measurement,
     remove_unit_series,
     rename_unit,
@@ -44,11 +45,13 @@ from .model_builder import (
 MENU_ORDER = (
     "unidade_nova",
     "unidade_editar",
+    "medidores",
     "faturas",
     "rateio",
     "investimento",
     "horario",
     "unidade_excluir",
+    "concluir",
 )
 
 #: Motivos de recusa, testados por nome: viram texto pelas traduções.
@@ -69,18 +72,7 @@ ERROR_HISTORY_KEEP = "history_keep"
 ERROR_PREVIOUS_INCOMPLETE = "previous_incomplete"
 ERROR_PREVIOUS_NEEDS_CURRENT = "previous_needs_current"
 ERROR_PREVIOUS_SAME = "previous_same"
-ERROR_CORRECTION_INCOMPLETE = "correction_incomplete"
-ERROR_CORRECTION_CONFIRM = "correction_confirm"
-
-#: O "O que fazer" da seção Medidor anterior: registrar um novo, ou apagar /
-#: corrigir a data de um já registrado. Valores da lista na tela e chaves de
-#: tradução (``selector.acao_anterior.options``). Registrar é o padrão: é o
-#: que a seção sempre fez, e quem não mexe no campo continua tendo isso.
-PREVIOUS_ADD = "registrar"
-CORRECTION_REMOVE = "remover"
-CORRECTION_MOVE = "mudar_data"
-CORRECTION_ACTIONS = (CORRECTION_REMOVE, CORRECTION_MOVE)
-PREVIOUS_ACTIONS = (PREVIOUS_ADD, *CORRECTION_ACTIONS)
+ERROR_PREVIOUS_UNKNOWN = "previous_unknown"
 
 
 def unit_ids(model: Mapping[str, Any]) -> tuple[str, ...]:
@@ -208,31 +200,111 @@ def previous_meter_choices(
     return opcoes
 
 
-def apply_previous_correction(
+def units_with_meters(model: Mapping[str, Any]) -> list[dict[str, str]]:
+    """As unidades que têm ao menos uma grandeza de energia com sensor.
+
+    São as únicas em que "medidor anterior" faz sentido: a troca parte o
+    trecho do sensor atual, e sem sensor atual não há o que partir.
+    """
+    return [
+        opcao for opcao in unit_choices(model)
+        if any(
+            c["kind"] == "energy" and c["current"]
+            for c in sensor_fields(model, opcao["value"])
+        )
+    ]
+
+
+def hour_options() -> list[dict[str, str]]:
+    """00h a 23h. Sem minuto: o histórico de energia do Home Assistant é de
+    hora em hora, e um minuto digitado seria descartado sem aviso."""
+    return [{"value": str(h), "label": f"{h:02d}h"} for h in range(24)]
+
+
+def cut_instant(day: Any, hour: Any, tz: Any) -> datetime:
+    """Data (``AAAA-MM-DD`` do calendário) e hora (``"0"``–``"23"``) num
+    instante com o fuso do Home Assistant."""
+    try:
+        dia = date.fromisoformat(str(day).strip()[:10])
+        hora = int(str(hour).strip())
+    except (TypeError, ValueError) as error:
+        raise ValueError(ERROR_SWAP_WHEN) from error
+    if not 0 <= hora <= 23:
+        raise ValueError(ERROR_SWAP_WHEN)
+    return datetime(dia.year, dia.month, dia.day, hora, tzinfo=tz)
+
+
+def split_instant(value: Any) -> tuple[str | None, str | None]:
+    """O inverso: ``2026-09-01T14:00:00-03:00`` → ``("2026-09-01", "14")``,
+    para a tela abrir já preenchida."""
+    try:
+        instante = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None, None
+    return instante.date().isoformat(), str(instante.hour)
+
+
+def _registro(record: Any) -> tuple[str, int]:
+    if not isinstance(record, str) or "#" not in record:
+        raise ValueError(ERROR_PREVIOUS_UNKNOWN)
+    metrica, _, posicao = record.rpartition("#")
+    try:
+        return metrica, int(posicao)
+    except ValueError as error:
+        raise ValueError(ERROR_PREVIOUS_UNKNOWN) from error
+
+
+def previous_meter(
+    model: Mapping[str, Any], unit_id: str, record: Any
+) -> dict[str, Any]:
+    """O medidor anterior escolhido na lista, para a tela de editar."""
+    metrica, indice = _registro(record)
+    for campo in sensor_fields(model, unit_id):
+        if campo["metric"] == metrica and 0 <= indice < len(campo["history"]):
+            fonte = campo["history"][indice]
+            return {
+                "metric": metrica,
+                "index": indice,
+                "label": campo["label"],
+                "entity_id": fonte.get("entity_id"),
+                "until": fonte.get("until"),
+            }
+    raise ValueError(ERROR_PREVIOUS_UNKNOWN)
+
+
+def edit_previous_meter(
     model: Mapping[str, Any],
     unit_id: str,
     record: Any,
-    action: Any,
+    *,
+    entity: Any,
     until: datetime | None,
+    delete: bool = False,
 ) -> dict[str, Any]:
-    """Apagar um medidor anterior ou corrigir até quando ele valeu.
+    """Salvar a tela de um medidor anterior: apagar, ou corrigir o que mudou.
 
-    ``record`` é um valor de ``previous_meter_choices``. Recusa de regra (data
-    fora dos limites, registro que não existe mais) sobe como
-    ``ModelBuilderError``; falta de campo, como ``ValueError`` com o motivo.
+    Apagar passa o período dele ao medidor seguinte. Sem apagar, só o que
+    a pessoa mudou é aplicado — o sensor, a data/hora do "usado até", ou os
+    dois. Recusa de regra (data fora dos limites, sensor igual ao do
+    seguinte) sobe como ``ModelBuilderError``.
     """
-    if not isinstance(record, str) or "#" not in record or action not in CORRECTION_ACTIONS:
-        raise ValueError(ERROR_CORRECTION_INCOMPLETE)
-    metrica, _, posicao = record.rpartition("#")
-    try:
-        indice = int(posicao)
-    except ValueError as error:
-        raise ValueError(ERROR_CORRECTION_INCOMPLETE) from error
-    if action == CORRECTION_REMOVE:
+    atual = previous_meter(model, unit_id, record)
+    metrica, indice = atual["metric"], atual["index"]
+    if delete:
         return remove_previous_meter(model, unit_id, metrica, indice)
+    novo = dict(model)
+    sensor = _entidade(entity)
+    if sensor is None:
+        raise ValueError(ERROR_PREVIOUS_INCOMPLETE)
+    if sensor != atual["entity_id"]:
+        novo = set_previous_meter_entity(novo, unit_id, metrica, indice, sensor)
     if not isinstance(until, datetime):
-        raise ValueError(ERROR_CORRECTION_INCOMPLETE)
-    return move_previous_meter_cut(model, unit_id, metrica, indice, until)
+        raise ValueError(ERROR_SWAP_WHEN)
+    corte = until.replace(minute=0, second=0, microsecond=0)
+    anterior = atual["until"]
+    if anterior is None or datetime.fromisoformat(str(anterior)) != corte:
+        novo = move_previous_meter_cut(novo, unit_id, metrica, indice, corte)
+    return novo
 
 
 def markdown_list(lines: list[str], empty: str) -> str:
@@ -429,6 +501,10 @@ def menu_options(
         "investimento": podem["generation"],
         "horario": podem["measurement"],
         "unidade_excluir": tem_unidade,
+        # Troca de medidor: só onde há sensor de energia para ser partido.
+        "medidores": bool(units_with_meters(model)),
+        # Salvar volta ao menu; é daqui que se sai.
+        "concluir": True,
     }
     return [item for item in MENU_ORDER if disponivel[item]]
 

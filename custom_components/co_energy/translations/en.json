@@ -77,15 +77,17 @@
     "step": {
       "init": {
         "title": "Configure Energy Management",
-        "description": "Choose what to set up. After saving, the panel refreshes by itself.",
+        "description": "Choose what to configure. Each change is saved right away and you come back here; to leave, use **Done**.",
         "menu_options": {
           "unidade_nova": "Add a unit",
           "unidade_editar": "Edit a unit (name, picture and sensors)",
+          "medidores": "Previous meters (meter replacement)",
           "faturas": "Extract utility bills",
           "rateio": "Credit distribution",
           "investimento": "Solar payback (investment and tariff)",
           "horario": "Reading boundary time",
-          "unidade_excluir": "Delete a unit"
+          "unidade_excluir": "Delete a unit",
+          "concluir": "Done"
         }
       },
       "unidade_nova": {
@@ -133,7 +135,7 @@
       },
       "sensores_unidade": {
         "title": "Sensors — {unidade}",
-        "description": "{dica} Each field is the CURRENT sensor. Leave blank what does not exist: it disappears from the panel instead of showing empty.",
+        "description": "{dica} Each field is the CURRENT sensor. Leave blank what does not exist: it disappears from the panel instead of showing empty. Replaced the meter? Record the previous one in **Previous meters**, in the menu.",
         "data": {
           "consumption_energy": "Consumption (kWh)",
           "generation_energy": "Generation (kWh)",
@@ -144,23 +146,6 @@
           "power": "Power (W) — optional",
           "power_factor": "Power factor — optional",
           "frequency": "Frequency (Hz) — optional"
-        },
-        "sections": {
-          "medidor_anterior": {
-            "name": "Previous meter (meter replacement)",
-            "description": "Use when the physical meter was replaced: enter which sensor was used before and until when. Before that date the previous sensor counts; from it on, the current one. Recorded it wrong? In \"What to do\", choose to delete or fix the date of one already recorded.",
-            "data": {
-              "o_que_fazer": "What to do",
-              "registro": "Meter already recorded (to delete or fix)",
-              "grandeza": "Quantity",
-              "sensor_anterior": "Previous sensor",
-              "usado_ate": "Used until",
-              "confirmar_correcao": "I confirm deleting or fixing"
-            },
-            "data_description": {
-              "usado_ate": "The cut falls on the full hour. To fix the date, enter the new one here.\n\n**Previous meters already recorded:** {historico}"
-            }
-          }
         }
       },
       "rateio": {
@@ -197,6 +182,55 @@
         "data": {
           "horario": "Time"
         }
+      },
+      "medidores": {
+        "title": "Previous meters",
+        "description": "Choose the unit.",
+        "data": {
+          "unidade": "Unit"
+        }
+      },
+      "medidores_unidade": {
+        "title": "Previous meters — {unidade}",
+        "description": "When the physical meter is replaced, record here the sensor used before and until when. Before that hour the previous one counts; from it on, the current one.\n\n**Recorded:** {historico}",
+        "menu_options": {
+          "medidor_novo": "Record a previous meter",
+          "medidor_editar": "Fix or delete a recorded one",
+          "init": "Back to the menu"
+        }
+      },
+      "medidor_novo": {
+        "title": "Record previous meter",
+        "description": "Unit {unidade}. Enter the quantity, the sensor used before and until when it counted.",
+        "data": {
+          "grandeza": "Quantity",
+          "sensor_anterior": "Previous sensor",
+          "data": "Used until (date)",
+          "hora": "Used until (hour)"
+        },
+        "data_description": {
+          "hora": "Hour only: Home Assistant keeps energy history hour by hour."
+        }
+      },
+      "medidor_editar": {
+        "title": "Fix previous meter",
+        "description": "Unit {unidade}. Choose which one to fix or delete.",
+        "data": {
+          "registro": "Recorded meter"
+        }
+      },
+      "medidor_dados": {
+        "title": "{grandeza}: {sensor}",
+        "description": "Fix the sensor or until when it counted, or tick **Delete this record**. When deleted, its period goes to the next meter. The history stored in Home Assistant is not deleted.",
+        "data": {
+          "sensor_anterior": "Sensor",
+          "data": "Used until (date)",
+          "hora": "Used until (hour)",
+          "apagar": "Delete this record"
+        },
+        "data_description": {
+          "hora": "Hour only: Home Assistant keeps energy history hour by hour."
+        }
       }
     },
     "error": {
@@ -219,30 +253,20 @@
       "tariff_date_required": "Enter the date this tariff started to apply.",
       "tariff_invalid": "Enter the tariff per kWh, greater than zero, e.g. 0.65.",
       "history_keep": "This quantity already had a meter replaced and cannot be left without a sensor: the record of previous meters depends on it.",
-      "previous_incomplete": "To record the previous meter, fill in the three fields: quantity, previous sensor and until when.",
+      "previous_incomplete": "Fill in the quantity, the previous sensor, the date and the hour.",
       "previous_needs_current": "This quantity has no current sensor yet. Pick its current sensor in the field above.",
       "previous_same": "The previous sensor is the same as the current one.",
       "unit_without_meter": "This unit is marked as having no meter in Home Assistant. To add sensors, tick \"This unit has a meter in Home Assistant\" under Edit a unit.",
       "confirm_required": "Tick the confirmation to delete.",
       "unit_has_share": "This unit holds {percentual}% of the distribution. Set it to zero under \"Credit distribution\" before deleting it — otherwise the others stop adding up to 100%.",
-      "correction_incomplete": "To delete or fix, pick the meter already recorded and, to fix the date, enter the new one in \"Used until\".",
-      "correction_confirm": "Tick \"I confirm deleting or fixing\" to change a meter already recorded.",
-      "correction_refused": "The correction was refused: the new date must be after this meter started and before the next one ended."
+      "correction_refused": "The correction was refused: the date must be after this meter started and before the next one ended, and the sensor cannot be the same as the next meter's.",
+      "previous_unknown": "That meter is no longer on the list. Choose again."
     },
     "abort": {
       "runtime_unavailable": "The integration has not finished loading. Try again in a few seconds.",
       "distribution_unavailable": "The stored distribution could not be read. See the Home Assistant log.",
       "save_failed": "Could not save. See the Home Assistant log.",
       "faturas_no_painel": "**Bills are read in the panel, not here.**\n\n1. Open **Gestão de Energia** in the sidebar.\n2. Go to the **Configuração** tab.\n3. Click **Extração de faturas** and pick the folder with the PDFs."
-    }
-  },
-  "selector": {
-    "acao_anterior": {
-      "options": {
-        "registrar": "Record a previous meter",
-        "remover": "Delete a recorded one (its period goes to the next meter)",
-        "mudar_data": "Fix the date of a recorded one"
-      }
     }
   }
 }
