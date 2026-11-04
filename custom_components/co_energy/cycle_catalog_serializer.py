@@ -143,9 +143,14 @@ def serialize_cycle_catalog(
             raise CycleCatalogSerializationError(
                 f"cycles[{index}].capability is invalid"
             )
-        if cycle.capability == "billing_only" and cycle.status != "closed":
+        # Unidade sem medidor não tem ciclo aberto, mas tem o que aguarda a
+        # fatura depois da leitura prevista — sem histórico.
+        if cycle.capability == "billing_only" and (
+            cycle.status == "open"
+            or (cycle.status == "provisional" and cycle.history_available)
+        ):
             raise CycleCatalogSerializationError(
-                f"cycles[{index}] billing_only cycle must be closed"
+                f"cycles[{index}] billing_only cycle must be closed or awaiting its bill"
             )
         if cycle.capability == "operational_history" and (
             cycle.billing_cycle_period is not None

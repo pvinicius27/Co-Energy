@@ -1215,9 +1215,13 @@
     _selectableHistoryCycles(unit = this._selectedUnit) {
       const cycles = this._cyclesCatalog(unit);
       if (!Array.isArray(cycles)) return [];
+      // O ciclo que aguarda fatura numa unidade sem medidor so acende o selo
+      // do cartao: nao tem serie nem consumo, e no seletor viraria o ciclo
+      // escolhido por padrao sem nada para mostrar.
       return cycles.filter((cycle) => (
         typeof cycle?.cycle_id === "string"
         && ["open", "provisional", "closed"].includes(cycle.status)
+        && !(cycle.status === "provisional" && cycle.capability === "billing_only")
       ));
     }
 

@@ -331,7 +331,10 @@ def get_billing_cycles(
         ) from error
 
     if bill_only:
-        return closed_cycles
+        return _bill_only_cycles(
+            closed_cycles, billing_document, unit, unit_id, now,
+            boundary, timezone, late_after_days,
+        )
     billing_key = unit.get("billing_key")
     if not isinstance(billing_key, str) or not billing_key.strip():
         raise BillingCycleError("billing_key must be a non-empty string")
@@ -419,6 +422,63 @@ def get_billing_cycles(
         for cycle in (open_cycle, provisional_cycle, *closed_cycles)
         if cycle is not None
     )
+
+
+def _bill_only_cycles(
+    closed_cycles: tuple[BillingCycle, ...],
+    billing_document: EquatorialDocument,
+    unit: Mapping[str, Any],
+    unit_id: str,
+    now: datetime,
+    boundary: time,
+    timezone: ZoneInfo,
+    late_after_days: int | None,
+) -> tuple[BillingCycle, ...]:
+    """Os ciclos fechados e, passada a próxima leitura, o que aguarda fatura.
+
+    Unidade sem medidor não tem ciclo aberto: não há série para medir. Mas a
+    próxima leitura impressa na última fatura basta para saber que o ciclo
+    terminou e a fatura seguinte já devia estar a caminho — o mesmo selo
+    "Aguardando fatura" das unidades medidas. O ciclo provisório daqui não tem
+    histórico (``history_available=False``) nem consumo: só diz que espera.
+    """
+    billing_key = unit.get("billing_key")
+    if not isinstance(billing_key, str) or not billing_key.strip():
+        return closed_cycles
+    try:
+        latest_bill = get_latest_bill(billing_document, billing_key)
+    except BillingError:
+        return closed_cycles
+    if (
+        latest_bill is None
+        or latest_bill.reading_current is None
+        or latest_bill.next_reading is None
+    ):
+        return closed_cycles
+    try:
+        start = at_boundary(latest_bill.reading_current, boundary, timezone)
+        expected_end = at_boundary(latest_bill.next_reading, boundary, timezone)
+    except PeriodError:
+        return closed_cycles
+    local_now = now.astimezone(timezone)
+    if expected_end <= start or local_now < expected_end:
+        return closed_cycles
+    provisional_id = _provisional_cycle_id(unit_id, start, expected_end)
+    provisional = BillingCycle(
+        cycle_id=provisional_id,
+        unit_id=unit_id,
+        billing_reference=None,
+        status="provisional",
+        capability="billing_only",
+        history_available=False,
+        period=Period(start, expected_end, "cycle", provisional_id),
+        official_consumption=None,
+        predicted_reference=_predicted_reference(expected_end),
+        invoice_status=invoice_status_after_reading(
+            expected_end, local_now, late_after_days
+        ),
+    )
+    return (provisional, *closed_cycles)
 
 
 def build_closed_bill_period(

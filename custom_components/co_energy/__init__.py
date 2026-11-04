@@ -12,7 +12,7 @@ from .http_api import async_register_http_api
 from .panel import async_register_panel, async_remove_panel
 from .removal import async_remove_all_data
 from .runtime import CoEnergyRuntimeError, async_build_runtime
-from .unit_images import move_legacy_images
+from .unit_images import async_serve_images, move_legacy_images
 from .websocket_api import async_register_websocket_api
 
 _LOGGER = logging.getLogger(__name__)
@@ -74,6 +74,12 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
             _LOGGER.info("Moved %s unit pictures to www/co_energy/imagens", movidas)
     except Exception:  # noqa: BLE001
         _LOGGER.warning("Could not move the unit pictures", exc_info=True)
+    try:
+        # A foto aparece logo depois de salva, sem reiniciar o HA, mesmo numa
+        # instalação em que ``www`` ainda não existia.
+        await async_serve_images(hass)
+    except Exception:  # noqa: BLE001
+        _LOGGER.warning("Could not serve the unit pictures", exc_info=True)
     try:
         runtime = await async_build_runtime(hass, dict(entry.data))
     except CoEnergyRuntimeError as error:

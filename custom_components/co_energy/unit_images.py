@@ -192,6 +192,51 @@ def save_image(
     return save_image_in(images_directory(hass), unit_id, file_name, data)
 
 
+#: Marca que o endereço das fotos já foi registrado neste Home Assistant. O
+#: registro vale para o processo; recarregar a entrada não registra de novo.
+_IMAGES_SERVED = "co_energy_images_served"
+
+
+def ensure_images_folder(config_dir: Any) -> Path:
+    """Cria ``www/co_energy/imagens`` se faltar; o que já existe fica como está.
+
+    Bloqueia: chame no executor.
+    """
+    pasta = Path(config_dir).joinpath(*IMAGES_RELATIVE_PATH)
+    pasta.mkdir(parents=True, exist_ok=True)
+    return pasta
+
+
+async def async_serve_images(hass: Any) -> None:
+    """A própria integração entrega as fotos em ``/local/co_energy/imagens``.
+
+    O Home Assistant só publica ``www`` como ``/local/`` se a pasta já existia
+    quando ele iniciou. Numa instalação nova ela não existe: a primeira foto
+    criava a pasta, e a foto só aparecia depois de reiniciar, sem nada dizendo
+    que era isso. Registrando o endereço daqui, a foto aparece na hora. Onde o
+    HA já serve ``/local/``, a rota dele vem antes e segue entregando o mesmo
+    arquivo — nada muda.
+    """
+    # A pasta é conferida a cada início, inclusive depois de remover e
+    # reinstalar a integração sem reiniciar: a remoção apaga a pasta vazia, e
+    # o endereço continua registrado apontando para ela.
+    pasta = await hass.async_add_executor_job(
+        ensure_images_folder, Path(hass.config.path())
+    )
+    if hass.data.get(_IMAGES_SERVED):
+        return
+    try:
+        from homeassistant.components.http import StaticPathConfig
+    except ImportError:
+        return  # fora do Home Assistant (testes): não há o que registrar
+    # `cache_headers=False`: trocar a foto mantém o nome do arquivo, e um
+    # cache longo seguraria a foto antiga na tela.
+    await hass.http.async_register_static_paths([
+        StaticPathConfig(PUBLIC_PREFIX, str(pasta), False)
+    ])
+    hass.data[_IMAGES_SERVED] = True
+
+
 def current_image_url(url: Any) -> Any:
     """O endereço da foto na pasta de hoje, mesmo gravado no da antiga."""
     if isinstance(url, str) and url.startswith(LEGACY_PREFIX + "/"):
