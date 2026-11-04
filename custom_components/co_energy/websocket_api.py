@@ -165,7 +165,6 @@ from .model_builder import (
 from .model_config_serializer import build_model_config
 from .invoice_storage import (
     InvoiceStorageError,
-    async_write_copy,
     build_invoice_document,
     compare_documents,
     summarize_ucs,
@@ -2317,10 +2316,6 @@ async def _async_handle_set_uc_owner(
     )
     if atualizado is None:
         return
-    if atualizado.invoice_manager is not None:
-        await async_write_copy(
-            hass, atualizado.invoice_manager, atualizado.model, now
-        )
     connection.send_result(
         msg["id"], {"api_version": API_VERSION, "data": _invoices_payload(atualizado)}
     )
@@ -2372,8 +2367,6 @@ async def _async_handle_use_invoice_storage(
     except InvoiceStorageError as error:
         connection.send_error(msg["id"], "invoices_invalid", str(error))
         return
-    if msg["use"]:
-        await async_write_copy(hass, runtime.invoice_manager, runtime.model, now)
     connection.send_result(
         msg["id"], {"api_version": API_VERSION, "data": _invoices_payload(runtime)}
     )
@@ -2382,11 +2375,7 @@ async def _async_handle_use_invoice_storage(
 async def _async_handle_delete_invoice(
     hass: Any, connection: Any, msg: Mapping[str, Any], now: datetime
 ) -> None:
-    """Apaga uma fatura guardada e responde com a lista atualizada.
-
-    A cópia JSON do dia é regravada: senão ela seguiria guardando a fatura
-    que a pessoa acabou de apagar por estar errada.
-    """
+    """Apaga uma fatura guardada e responde com a lista atualizada."""
     runtime = _invoice_runtime(hass, connection, msg)
     if runtime is None:
         return
@@ -2400,8 +2389,6 @@ async def _async_handle_delete_invoice(
             msg["id"], "invoice_not_found", "Esta fatura já não está guardada."
         )
         return
-    if runtime.invoice_manager.stored.faturas:
-        await async_write_copy(hass, runtime.invoice_manager, runtime.model, now)
     connection.send_result(
         msg["id"], {"api_version": API_VERSION, "data": _invoices_payload(runtime)}
     )

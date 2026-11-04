@@ -77,7 +77,7 @@
     "step": {
       "init": {
         "title": "Configure Energy Management",
-        "description": "Choose what to configure. Each change is saved right away and you come back here; to leave, use **Done**.",
+        "description": "Choose what to configure. Each change is saved when you submit the screen and you come back here. To leave, close with the **X**.",
         "menu_options": {
           "unidade_nova": "Add a unit",
           "unidade_editar": "Edit a unit (name, picture and sensors)",
@@ -86,8 +86,7 @@
           "rateio": "Credit distribution",
           "investimento": "Solar payback (investment and tariff)",
           "horario": "Reading boundary time",
-          "unidade_excluir": "Delete a unit",
-          "concluir": "Done"
+          "unidade_excluir": "Delete a unit"
         }
       },
       "unidade_nova": {
@@ -150,12 +149,11 @@
       },
       "rateio": {
         "title": "Credit distribution",
-        "description": "{situacao} How much of the surplus energy goes to each unit; they must add up to 100%.",
-        "data": {
-          "a_partir_de": "From (optional)"
-        },
-        "data_description": {
-          "a_partir_de": "Blank, the new distribution applies from now. With a future date, it is scheduled. With a past date, the change enters the history at that date — the earlier period keeps the distribution already in force; repeat to build the phases.\n\n**History:** {historico}"
+        "description": "How much of the surplus energy goes to each unit, over time.\n\n**History:** {historico}",
+        "menu_options": {
+          "rateio_novo": "Enter a distribution change",
+          "rateio_editar": "Fix or delete a period",
+          "init": "Back to the menu"
         }
       },
       "tarifa": {
@@ -180,7 +178,10 @@
         "title": "Reading boundary time",
         "description": "The time of day used to align the bill reading dates with the sensors. Changing it recalculates all cycle history.",
         "data": {
-          "horario": "Time"
+          "horario": "Hour"
+        },
+        "data_description": {
+          "horario": "Hour only: Home Assistant keeps energy history hour by hour."
         }
       },
       "medidores": {
@@ -191,8 +192,8 @@
         }
       },
       "medidores_unidade": {
-        "title": "Previous meters — {unidade}",
-        "description": "When the physical meter is replaced, record here the sensor used before and until when. Before that hour the previous one counts; from it on, the current one.\n\n**Recorded:** {historico}",
+        "title": "Previous meters",
+        "description": "Unit **{unidade}**. When the physical meter is replaced, record here the sensor used before and until when. Before that hour the previous one counts; from it on, the current one.\n\n**Recorded:** {historico}",
         "menu_options": {
           "medidor_novo": "Record a previous meter",
           "medidor_editar": "Fix or delete a recorded one",
@@ -231,6 +232,37 @@
         "data_description": {
           "hora": "Hour only: Home Assistant keeps energy history hour by hour."
         }
+      },
+      "rateio_novo": {
+        "title": "Distribution change",
+        "description": "{situacao} They must add up to 100%.",
+        "data": {
+          "data": "From (date, optional)",
+          "hora": "From (hour)"
+        },
+        "data_description": {
+          "data": "Blank, it applies from now. With a future date, it is scheduled. With a past date, it enters the history at that date; the earlier period keeps the distribution already in force.",
+          "hora": "Hour only: Home Assistant keeps energy history hour by hour."
+        }
+      },
+      "rateio_editar": {
+        "title": "Fix distribution",
+        "description": "Choose the period to fix or delete.",
+        "data": {
+          "registro": "Period"
+        }
+      },
+      "rateio_dados": {
+        "title": "Fix distribution period",
+        "description": "**{periodo}**. Fix the percentages or the start, or tick **Delete this period**. {inicio} When deleted, the previous period keeps applying in its place.",
+        "data": {
+          "data": "Starts on (date)",
+          "hora": "Starts at (hour)",
+          "apagar": "Delete this period"
+        },
+        "data_description": {
+          "hora": "Hour only: Home Assistant keeps energy history hour by hour."
+        }
       }
     },
     "error": {
@@ -260,7 +292,10 @@
       "confirm_required": "Tick the confirmation to delete.",
       "unit_has_share": "This unit holds {percentual}% of the distribution. Set it to zero under \"Credit distribution\" before deleting it — otherwise the others stop adding up to 100%.",
       "correction_refused": "The correction was refused: the date must be after this meter started and before the next one ended, and the sensor cannot be the same as the next meter's.",
-      "previous_unknown": "That meter is no longer on the list. Choose again."
+      "previous_unknown": "That meter is no longer on the list. Choose again.",
+      "distribution_when_incomplete": "To use a date, also choose the hour; or leave both blank for it to apply from now.",
+      "distribution_unknown": "That period is no longer on the list. Choose again.",
+      "distribution_edit_refused": "The correction was refused: the start must be after the previous period's start and before this one's end, and only the last period may start in the future."
     },
     "abort": {
       "runtime_unavailable": "The integration has not finished loading. Try again in a few seconds.",

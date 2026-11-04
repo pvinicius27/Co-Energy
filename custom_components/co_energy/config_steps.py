@@ -51,7 +51,6 @@ MENU_ORDER = (
     "investimento",
     "horario",
     "unidade_excluir",
-    "concluir",
 )
 
 #: Motivos de recusa, testados por nome: viram texto pelas traduções.
@@ -73,6 +72,8 @@ ERROR_PREVIOUS_INCOMPLETE = "previous_incomplete"
 ERROR_PREVIOUS_NEEDS_CURRENT = "previous_needs_current"
 ERROR_PREVIOUS_SAME = "previous_same"
 ERROR_PREVIOUS_UNKNOWN = "previous_unknown"
+ERROR_DISTRIBUTION_WHEN = "distribution_when_incomplete"
+ERROR_DISTRIBUTION_UNKNOWN = "distribution_unknown"
 
 
 def unit_ids(model: Mapping[str, Any]) -> tuple[str, ...]:
@@ -503,8 +504,6 @@ def menu_options(
         "unidade_excluir": tem_unidade,
         # Troca de medidor: só onde há sensor de energia para ser partido.
         "medidores": bool(units_with_meters(model)),
-        # Salvar volta ao menu; é daqui que se sai.
-        "concluir": True,
     }
     return [item for item in MENU_ORDER if disponivel[item]]
 
@@ -545,19 +544,6 @@ def other_generator(model: Mapping[str, Any], unit_id: str | None = None) -> str
         ):
             return str(unidade.get("name") or outro)
     return None
-
-
-def boundary_from_selector(value: Any) -> str:
-    """``HH:MM`` a partir do que o seletor de hora devolve (``HH:MM:SS``)."""
-    if not isinstance(value, str):
-        raise ValueError(ERROR_TIME_INVALID)
-    partes = value.strip().split(":")
-    if len(partes) < 2 or not all(p.isdigit() for p in partes[:2]):
-        raise ValueError(ERROR_TIME_INVALID)
-    hora, minuto = int(partes[0]), int(partes[1])
-    if not (0 <= hora <= 23 and 0 <= minuto <= 59):
-        raise ValueError(ERROR_TIME_INVALID)
-    return f"{hora:02d}:{minuto:02d}"
 
 
 def color_hex(value: Any) -> str | None:
@@ -671,31 +657,113 @@ def distribution_history(model: Mapping[str, Any], rules: Any) -> list[str]:
     É o que torna a tela intuitiva: quem muda o rateio vê que o anterior
     continua valendo para o período dele, e que o novo vale a partir da data.
     """
-    nomes = {o["value"]: o["label"] for o in unit_choices(model)}
-    linhas = []
+    return [
+        f"**{quando}:** {partes}" for quando, partes in _periodos_rateio(model, rules)
+    ]
+
+
+def distribution_choices(model: Mapping[str, Any], rules: Any) -> list[dict[str, str]]:
+    """Os períodos do rateio para escolher qual corrigir, como no histórico."""
+    return [
+        {"value": regra.id, "label": f"{quando}: {partes}"}
+        for (quando, partes), regra in zip(
+            _periodos_rateio(model, rules), _mais_recente_primeiro(rules)
+        )
+    ]
+
+
+def _mais_recente_primeiro(rules: Any) -> list[Any]:
     # A regra sem início ("desde sempre") é a mais antiga.
-    for regra in sorted(
+    return sorted(
         rules,
         key=lambda r: r.effective_from.timestamp() if r.effective_from else float("-inf"),
         reverse=True,
-    ):
-        if regra.effective_from and regra.effective_until:
-            quando = (
-                f"De {regra.effective_from.strftime('%d/%m/%Y %H:%M')} "
-                f"até {regra.effective_until.strftime('%d/%m/%Y %H:%M')}"
-            )
-        elif regra.effective_from:
-            quando = f"Desde {regra.effective_from.strftime('%d/%m/%Y %H:%M')}"
-        elif regra.effective_until:
-            quando = f"Até {regra.effective_until.strftime('%d/%m/%Y %H:%M')}"
-        else:
-            quando = "Sempre"
+    )
+
+
+def _periodos_rateio(model: Mapping[str, Any], rules: Any) -> list[tuple[str, str]]:
+    nomes = {o["value"]: o["label"] for o in unit_choices(model)}
+    linhas = []
+    for regra in _mais_recente_primeiro(rules):
+        quando = distribution_period(regra)
         partes = " · ".join(
             f"{nomes.get(unit_id, unit_id)} {format(Decimal(valor).normalize(), 'f')}%"
             for unit_id, valor in regra.shares.items()
         )
-        linhas.append(f"**{quando}:** {partes}")
+        linhas.append((quando, partes))
     return linhas
+
+
+def distribution_period(regra: Any) -> str:
+    """``De 15/06/2026 10:00 até 04/11/2026 01:07``, ``Desde …``, ``Até …``."""
+    if regra.effective_from and regra.effective_until:
+        quando = (
+            f"De {regra.effective_from.strftime('%d/%m/%Y %H:%M')} "
+            f"até {regra.effective_until.strftime('%d/%m/%Y %H:%M')}"
+        )
+    elif regra.effective_from:
+        quando = f"Desde {regra.effective_from.strftime('%d/%m/%Y %H:%M')}"
+    elif regra.effective_until:
+        quando = f"Até {regra.effective_until.strftime('%d/%m/%Y %H:%M')}"
+    else:
+        quando = "Sempre"
+    return quando
+
+
+def distribution_rule(rules: Any, rule_id: Any) -> tuple[int, Any]:
+    """O período escolhido e a posição dele (0 = o mais antigo)."""
+    for indice, regra in enumerate(rules):
+        if regra.id == rule_id:
+            return indice, regra
+    raise ValueError(ERROR_DISTRIBUTION_UNKNOWN)
+
+
+def optional_instant(day: Any, hour: Any, tz: Any) -> datetime | None:
+    """Data e hora opcionais: as duas em branco é "agora" (``None``).
+
+    Só uma das duas é recusa — data sem hora valeria meia-noite sem a
+    pessoa ter escolhido isso.
+    """
+    vazio = (None, "")
+    if day in vazio and hour in vazio:
+        return None
+    if day in vazio or hour in vazio:
+        raise ValueError(ERROR_DISTRIBUTION_WHEN)
+    return cut_instant(day, hour, tz)
+
+
+def moved_start(current: datetime | None, day: Any, hour: Any, tz: Any) -> datetime | None:
+    """O novo início do período, ou ``None`` se a pessoa não mexeu nele.
+
+    A tela mostra só data e hora; um início gravado com minutos (o "a partir
+    de agora" grava o minuto) não pode virar hora cheia só por salvar a tela
+    sem mudar nada.
+    """
+    if current is not None and split_instant(current.isoformat()) == (
+        str(day or "")[:10] or None, str(hour) if hour not in (None, "") else None
+    ):
+        return None
+    return cut_instant(day, hour, tz)
+
+
+def boundary_hour(boundary: Any) -> str:
+    """``"10:00"`` → ``"10"``: o horário de corte é escolhido só pela hora."""
+    try:
+        hora = int(str(boundary).split(":")[0])
+    except ValueError:
+        return "10"
+    return str(hora) if 0 <= hora <= 23 else "10"
+
+
+def boundary_from_hour(hour: Any) -> str:
+    """``"7"`` → ``"07:00"``. O histórico de energia é de hora em hora."""
+    try:
+        hora = int(str(hour).strip())
+    except ValueError as error:
+        raise ValueError(ERROR_TIME_INVALID) from error
+    if not 0 <= hora <= 23:
+        raise ValueError(ERROR_TIME_INVALID)
+    return f"{hora:02d}:00"
 
 
 def tariff_intervals(tariffs: Mapping[date, Any]) -> list[str]:

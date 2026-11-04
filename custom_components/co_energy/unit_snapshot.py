@@ -13,6 +13,7 @@ from .energy_model import (
     get_unit_definition,
 )
 from .equatorial_adapter import EquatorialDocument
+from .unit_images import current_image_url
 from .logical_state import (
     LogicalStateError,
     LogicalStateResult,
@@ -55,7 +56,7 @@ def _get_image(definition: Mapping[str, Any]) -> str | None:
         return None
     if not isinstance(image, str) or not image.strip():
         raise UnitSnapshotError("presentation.image must be a non-empty string or None")
-    return image
+    return current_image_url(image)
 
 
 def get_unit_snapshot(

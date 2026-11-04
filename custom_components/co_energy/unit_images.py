@@ -23,10 +23,16 @@ import re
 from typing import Any
 
 #: Onde o projeto guarda as fotos, relativo ao diretório de configuração.
-IMAGES_RELATIVE_PATH = ("www", "energy_dashboard", "imagens")
+#: Com o nome do projeto, para não ficar uma pasta de nome solto no ``www``.
+IMAGES_RELATIVE_PATH = ("www", "co_energy", "imagens")
 
 #: O prefixo público equivalente: ``config/www/x`` é servido em ``/local/x``.
-PUBLIC_PREFIX = "/local/energy_dashboard/imagens"
+PUBLIC_PREFIX = "/local/co_energy/imagens"
+
+#: Onde as versões anteriores guardavam. As fotos de lá mudam para a pasta
+#: nova ao iniciar, e o endereço gravado no modelo é lido já traduzido.
+LEGACY_RELATIVE_PATH = ("www", "energy_dashboard", "imagens")
+LEGACY_PREFIX = "/local/energy_dashboard/imagens"
 
 #: Formatos que um navegador exibe sem plugin. Um arquivo que nao seja imagem
 #: na pasta — um .txt de anotacoes, um .zip esquecido — e ignorado em vez de
@@ -184,3 +190,46 @@ def save_image(
 ) -> dict[str, Any]:
     """Store one uploaded picture for a unit in this installation."""
     return save_image_in(images_directory(hass), unit_id, file_name, data)
+
+
+def current_image_url(url: Any) -> Any:
+    """O endereço da foto na pasta de hoje, mesmo gravado no da antiga."""
+    if isinstance(url, str) and url.startswith(LEGACY_PREFIX + "/"):
+        return PUBLIC_PREFIX + url[len(LEGACY_PREFIX):]
+    return url
+
+
+def move_legacy_images(config_dir: Any) -> int:
+    """Leva as fotos de ``www/energy_dashboard/imagens`` para a pasta nova.
+
+    Roda a cada início e não faz nada quando não há pasta antiga. Uma foto
+    que já existe na pasta nova não é sobrescrita: a antiga fica onde está.
+    As pastas antigas saem se ficarem vazias — ``www`` nunca, é do Home
+    Assistant. Devolve quantas fotos mudaram. Bloqueia: chame no executor.
+    """
+    raiz = Path(config_dir)
+    antiga = raiz.joinpath(*LEGACY_RELATIVE_PATH)
+    if not antiga.is_dir():
+        return 0
+    nova = raiz.joinpath(*IMAGES_RELATIVE_PATH)
+    movidas = 0
+    for arquivo in sorted(antiga.iterdir()):
+        if not arquivo.is_file() or arquivo.suffix.lower() not in IMAGE_SUFFIXES:
+            continue
+        destino = nova / arquivo.name
+        if destino.exists():
+            continue
+        try:
+            nova.mkdir(parents=True, exist_ok=True)
+            arquivo.replace(destino)
+            movidas += 1
+        except OSError:
+            continue
+    for pasta in (antiga, antiga.parent):
+        try:
+            if pasta.is_dir() and not any(pasta.iterdir()):
+                pasta.rmdir()
+        except OSError:
+            pass
+    return movidas
+

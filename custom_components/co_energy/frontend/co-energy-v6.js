@@ -7682,8 +7682,8 @@
       if (resultado) secao.append(this._renderInvoiceCompare(resultado));
       secao.append(this._element(
         "small", "settings-stamp",
-        "Uma cópia JSON é gravada a cada leitura em /config/co_energy/faturas/, "
-        + "guardando os 12 dias mais recentes.",
+        "As faturas lidas ficam guardadas no Home Assistant e entram no backup dele. "
+        + "Para ter um arquivo, use Exportar JSON.",
       ));
       return secao;
     }

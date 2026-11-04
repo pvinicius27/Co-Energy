@@ -22,11 +22,15 @@ from pathlib import Path
 from typing import Any
 
 from .distribution_storage import STORAGE_KEY as DISTRIBUTION_KEY
-from .invoice_storage import COPY_FOLDER, STORAGE_KEY as INVOICES_KEY
+from .invoice_storage import STORAGE_KEY as INVOICES_KEY
 from .model_storage import STORAGE_KEY as MODEL_KEY
 from .operational_settings import STORAGE_KEY as SETTINGS_KEY
 from .sensor_overrides import STORAGE_KEY as SENSORS_KEY
-from .unit_images import IMAGE_SUFFIXES, IMAGES_RELATIVE_PATH
+from .unit_images import IMAGE_SUFFIXES, IMAGES_RELATIVE_PATH, LEGACY_RELATIVE_PATH
+
+#: Onde versões anteriores gravavam uma cópia JSON das faturas. Não se grava
+#: mais, mas quem instalou antes ainda tem os arquivos, e remover limpa.
+LEGACY_INVOICE_COPIES = ("co_energy", "faturas")
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -98,8 +102,8 @@ def remove_empty_dir(caminho: Path) -> None:
 def remove_picture_folders(images_dir: Path) -> None:
     """A pasta das fotos e a pasta dela, se as duas ficaram vazias.
 
-    As fotos moram em ``www/energy_dashboard/imagens``, e as duas pastas foram
-    criadas pela integração. Tirar só ``imagens`` deixava ``energy_dashboard``
+    As fotos moram em ``www/co_energy/imagens``, e as duas pastas foram
+    criadas pela integração. Tirar só ``imagens`` deixava ``co_energy``
     vazia em ``www`` — a única coisa que sobrava de quem removeu tudo. Sobe um
     nível e para: ``www`` é do Home Assistant, não nossa. Pasta com qualquer
     outra coisa dentro fica. Bloqueia: chame no executor.
@@ -129,7 +133,7 @@ def unit_ids_from_stored_model(raw: Any) -> tuple[str, ...]:
 
 
 async def async_remove_all_data(hass: Any) -> None:
-    """Apaga o storage, as cópias de fatura e as fotos das unidades.
+    """Apaga o storage, as cópias antigas de fatura e as fotos das unidades.
 
     Nunca levanta: remover a entrada não pode falhar por causa da limpeza. O
     Home Assistant já tirou a integração da lista quando chega aqui, e um erro
@@ -160,8 +164,7 @@ async def async_remove_all_data(hass: Any) -> None:
             return
 
         config_dir = Path(hass.config.path())
-        faturas = config_dir / COPY_FOLDER
-        imagens = config_dir.joinpath(*IMAGES_RELATIVE_PATH)
+        faturas = config_dir.joinpath(*LEGACY_INVOICE_COPIES)
 
         if faturas.is_dir():
             copias = tuple(p for p in faturas.glob("*.json") if p.is_file())
@@ -169,11 +172,16 @@ async def async_remove_all_data(hass: Any) -> None:
             await executor(remove_empty_dir, faturas)
             await executor(remove_empty_dir, faturas.parent)
 
-        fotos = await executor(unit_picture_paths, imagens, unit_ids)
-        if fotos:
-            await executor(remove_files, fotos)
-        # Mesmo sem foto: a pasta pode ter ficado vazia de antes (foto trocada
-        # ou apagada pela tela) e sobraria do mesmo jeito.
-        await executor(remove_picture_folders, imagens)
+        # A pasta de hoje e a das versões anteriores, se ainda existir.
+        for imagens in (
+            config_dir.joinpath(*IMAGES_RELATIVE_PATH),
+            config_dir.joinpath(*LEGACY_RELATIVE_PATH),
+        ):
+            fotos = await executor(unit_picture_paths, imagens, unit_ids)
+            if fotos:
+                await executor(remove_files, fotos)
+            # Mesmo sem foto: a pasta pode ter ficado vazia de antes (foto
+            # trocada ou apagada pela tela) e sobraria do mesmo jeito.
+            await executor(remove_picture_folders, imagens)
     except Exception:  # noqa: BLE001 - a remoção da entrada prossegue
         _LOGGER.exception("Could not remove the CoEnergy data")

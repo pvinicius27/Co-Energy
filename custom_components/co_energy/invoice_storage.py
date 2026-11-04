@@ -2,8 +2,9 @@
 
 Ate aqui as faturas moravam num arquivo em ``/local/``, escrito por um
 extrator que rodava no Windows. Agora a propria integracao le o PDF, e o que
-ela le fica aqui: no storage, que e privado, e com uma copia JSON numa pasta
-que tambem e (``AGENTS.md`` §19).
+ela le fica aqui: no storage, que e privado e entra no backup do Home
+Assistant. Nao ha copia em arquivo: o backup do HA ja cobre o storage, e uma
+segunda copia era so mais um lugar com as faturas.
 
 Tres coisas ficam guardadas, e nenhuma e o PDF:
 
@@ -45,12 +46,6 @@ _LOGGER = logging.getLogger(__name__)
 
 STORAGE_KEY = "co_energy.invoices"
 STORAGE_VERSION = 1
-
-#: Onde fica a copia JSON, relativa a pasta de configuracao do HA. Fora de
-#: ``www``: o que esta la e servido sem login.
-COPY_FOLDER = "co_energy/faturas"
-COPY_PREFIX = "faturas_energia_v6_"
-COPY_KEEP = 12
 
 #: Uma fatura da Equatorial tem por volta de 1 MB. O teto existe para um
 #: arquivo errado nao ocupar a memoria do Home Assistant.
@@ -407,30 +402,6 @@ def compare_documents(
     }
 
 
-def write_invoice_copy(pasta_config: str | Path, documento: Mapping[str, Any], agora: datetime) -> Path:
-    """Write the dated JSON copy and keep only the most recent ones.
-
-    Uma copia por dia, sobrescrita a cada gravacao do mesmo dia: uma extracao
-    de 34 PDFs grava o storage 34 vezes, e uma copia por gravacao encheria as
-    doze vagas com o mesmo lote, apagando justamente as de dias anteriores —
-    que sao as que servem para voltar atras.
-
-    Bloqueia: chame no executor.
-    """
-    pasta = Path(pasta_config) / COPY_FOLDER
-    pasta.mkdir(parents=True, exist_ok=True)
-    destino = pasta / f"{COPY_PREFIX}{agora.date().isoformat()}.json"
-    temporario = destino.with_suffix(".json.tmp")
-    temporario.write_text(
-        json.dumps(documento, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    temporario.replace(destino)
-    copias = sorted(pasta.glob(f"{COPY_PREFIX}*.json"))
-    for antiga in copias[:-COPY_KEEP]:
-        antiga.unlink(missing_ok=True)
-    return destino
-
-
 async def async_import_invoice(
     hass: Any,
     manager: "InvoiceStorageManager",
@@ -439,7 +410,7 @@ async def async_import_invoice(
     dados: bytes,
     now: datetime,
 ) -> dict[str, Any]:
-    """Read one PDF, keep the bill, refresh the copy; say what was found.
+    """Read one PDF, keep the bill; say what was found.
 
     A resposta e o que a tela mostra enquanto a pasta vai sendo lida: de que
     mes e a fatura, de que UC, e se essa UC ja tem dono — sem dono, a tela
@@ -447,7 +418,6 @@ async def async_import_invoice(
     """
     fatura, final = await hass.async_add_executor_job(read_invoice_pdf, dados, nome)
     nova = await manager.async_add(fatura, final, now=now)
-    await async_write_copy(hass, manager, model, now)
 
     valor = get_bill_uc_hash(fatura)
     dono = None
@@ -466,30 +436,6 @@ async def async_import_invoice(
         "status": extracao.get("status"),
         "alerts": len(extracao.get("alertas") or []),
     }
-
-
-async def async_write_copy(
-    hass: Any, manager: "InvoiceStorageManager", model: Mapping[str, Any], now: datetime
-) -> str | None:
-    """Write today's JSON copy of the stored bills; never fail the caller.
-
-    A copia e uma rede de seguranca. Se ela falhar, a fatura ja esta guardada
-    no storage, e recusar a gravacao por causa da copia seria perder o que
-    importa por causa do que e reserva.
-    """
-    faturas = manager.stored.faturas
-    if not faturas:
-        return None
-
-    def gravar() -> str:
-        documento = build_invoice_document(faturas, model)
-        return write_invoice_copy(hass.config.path(), documento, now).name
-
-    try:
-        return await hass.async_add_executor_job(gravar)
-    except Exception:  # noqa: BLE001
-        _LOGGER.warning("Could not write the JSON copy of the invoices", exc_info=True)
-        return None
 
 
 class InvoiceStorageManager:

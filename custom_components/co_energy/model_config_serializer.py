@@ -14,6 +14,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Mapping
 
+from .unit_images import current_image_url
+
 SOURCE_STORAGE = "storage"
 SOURCE_FILE = "file"
 
@@ -23,7 +25,7 @@ def _unit_image(unit: Mapping[str, Any]) -> str | None:
     if not isinstance(presentation, Mapping):
         return None
     image = presentation.get("image")
-    return image if isinstance(image, str) and image else None
+    return current_image_url(image) if isinstance(image, str) and image else None
 
 
 def _unit_ucs(

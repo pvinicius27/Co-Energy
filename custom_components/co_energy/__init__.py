@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import logging
+from pathlib import Path
 from typing import Any
 
 from .const import DOMAIN
@@ -11,6 +12,7 @@ from .http_api import async_register_http_api
 from .panel import async_register_panel, async_remove_panel
 from .removal import async_remove_all_data
 from .runtime import CoEnergyRuntimeError, async_build_runtime
+from .unit_images import move_legacy_images
 from .websocket_api import async_register_websocket_api
 
 _LOGGER = logging.getLogger(__name__)
@@ -62,6 +64,16 @@ async def async_setup(hass: Any, config: Mapping[str, Any]) -> bool:
 
 async def async_setup_entry(hass: Any, entry: Any) -> bool:
     """Set up CoEnergy from a config entry."""
+    try:
+        # Fotos de versões anteriores mudam para www/co_energy/imagens. Falhar
+        # aqui não impede a integração de subir: a foto só não aparece.
+        movidas = await hass.async_add_executor_job(
+            move_legacy_images, Path(hass.config.path())
+        )
+        if movidas:
+            _LOGGER.info("Moved %s unit pictures to www/co_energy/imagens", movidas)
+    except Exception:  # noqa: BLE001
+        _LOGGER.warning("Could not move the unit pictures", exc_info=True)
     try:
         runtime = await async_build_runtime(hass, dict(entry.data))
     except CoEnergyRuntimeError as error:

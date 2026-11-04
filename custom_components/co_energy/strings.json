@@ -77,7 +77,7 @@
     "step": {
       "init": {
         "title": "Configurar a Gestão de Energia",
-        "description": "Escolha o que configurar. Cada mudança é salva na hora e você volta para cá; para sair, use **Concluir**.",
+        "description": "Escolha o que configurar. Cada mudança é salva quando você envia a tela e você volta para cá. Para sair, feche no **X**.",
         "menu_options": {
           "unidade_nova": "Adicionar unidade",
           "unidade_editar": "Editar unidade (nome, foto e sensores)",
@@ -86,8 +86,7 @@
           "rateio": "Rateio dos créditos",
           "investimento": "Payback do sistema solar (investimento e tarifa)",
           "horario": "Horário de corte das leituras",
-          "unidade_excluir": "Excluir unidade",
-          "concluir": "Concluir"
+          "unidade_excluir": "Excluir unidade"
         }
       },
       "unidade_nova": {
@@ -150,12 +149,11 @@
       },
       "rateio": {
         "title": "Rateio dos créditos",
-        "description": "{situacao} Quanto da energia excedente vai para cada unidade; a soma precisa dar 100%.",
-        "data": {
-          "a_partir_de": "A partir de (opcional)"
-        },
-        "data_description": {
-          "a_partir_de": "Em branco, o novo rateio vale a partir de agora. Com data futura, fica agendado. Com data passada, a mudanca entra no historico naquela data — o periodo anterior continua com o rateio que ja valia; repita para montar as fases.\n\n**Historico:** {historico}"
+        "description": "Quanto da energia excedente vai para cada unidade, ao longo do tempo.\n\n**Histórico:** {historico}",
+        "menu_options": {
+          "rateio_novo": "Informar uma mudança de rateio",
+          "rateio_editar": "Corrigir ou apagar um período",
+          "init": "Voltar ao menu"
         }
       },
       "tarifa": {
@@ -180,7 +178,10 @@
         "title": "Horário de corte das leituras",
         "description": "A hora do dia usada para alinhar as datas de leitura da fatura com os sensores. Mudar recalcula todo o histórico de ciclos.",
         "data": {
-          "horario": "Horário"
+          "horario": "Hora"
+        },
+        "data_description": {
+          "horario": "Só a hora: o histórico de energia do Home Assistant é de hora em hora."
         }
       },
       "medidores": {
@@ -191,8 +192,8 @@
         }
       },
       "medidores_unidade": {
-        "title": "Medidores anteriores — {unidade}",
-        "description": "Quando o medidor físico é trocado, registre aqui o sensor que era usado antes e até quando. Antes dessa hora vale o anterior; a partir dela, o atual.\n\n**Registrados:** {historico}",
+        "title": "Medidores anteriores",
+        "description": "Unidade **{unidade}**. Quando o medidor físico é trocado, registre aqui o sensor que era usado antes e até quando. Antes dessa hora vale o anterior; a partir dela, o atual.\n\n**Registrados:** {historico}",
         "menu_options": {
           "medidor_novo": "Registrar um medidor anterior",
           "medidor_editar": "Corrigir ou apagar um registrado",
@@ -231,6 +232,37 @@
         "data_description": {
           "hora": "Só a hora: o histórico de energia do Home Assistant é de hora em hora."
         }
+      },
+      "rateio_novo": {
+        "title": "Mudança de rateio",
+        "description": "{situacao} A soma precisa dar 100%.",
+        "data": {
+          "data": "A partir de (data, opcional)",
+          "hora": "A partir de (hora)"
+        },
+        "data_description": {
+          "data": "Em branco, vale a partir de agora. Com data futura, fica agendado. Com data passada, entra no histórico naquela data; o período anterior continua com o rateio que já valia.",
+          "hora": "Só a hora: o histórico de energia do Home Assistant é de hora em hora."
+        }
+      },
+      "rateio_editar": {
+        "title": "Corrigir rateio",
+        "description": "Escolha o período que quer corrigir ou apagar.",
+        "data": {
+          "registro": "Período"
+        }
+      },
+      "rateio_dados": {
+        "title": "Corrigir período do rateio",
+        "description": "**{periodo}**. Corrija os percentuais ou o início, ou marque **Apagar este período**. {inicio} Ao apagar, o período anterior continua valendo no lugar dele.",
+        "data": {
+          "data": "Começa em (data)",
+          "hora": "Começa em (hora)",
+          "apagar": "Apagar este período"
+        },
+        "data_description": {
+          "hora": "Só a hora: o histórico de energia do Home Assistant é de hora em hora."
+        }
       }
     },
     "error": {
@@ -260,7 +292,10 @@
       "confirm_required": "Marque a confirmação para excluir.",
       "unit_has_share": "Esta unidade tem {percentual}% do rateio. Leve o percentual dela a zero em \"Rateio dos créditos\" antes de excluí-la — senão as outras deixam de somar 100%.",
       "correction_refused": "A correção não foi aceita: a data precisa ficar depois do início desse medidor e antes do fim do seguinte, e o sensor não pode ser o mesmo do medidor seguinte.",
-      "previous_unknown": "Esse medidor não está mais na lista. Escolha de novo."
+      "previous_unknown": "Esse medidor não está mais na lista. Escolha de novo.",
+      "distribution_when_incomplete": "Para usar uma data, escolha também a hora; ou deixe as duas em branco para valer a partir de agora.",
+      "distribution_unknown": "Esse período não está mais na lista. Escolha de novo.",
+      "distribution_edit_refused": "A correção não foi aceita: o início precisa ficar depois do início do período anterior e antes do fim deste, e só o último período pode começar no futuro."
     },
     "abort": {
       "runtime_unavailable": "A integração ainda não terminou de carregar. Tente de novo em alguns segundos.",

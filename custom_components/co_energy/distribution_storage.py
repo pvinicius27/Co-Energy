@@ -425,6 +425,96 @@ class DistributionManager:
             return resolve_distribution(candidate, effective_from, self._unit_ids)
 
 
+    def _future_check(self, rules: Sequence[ConfiguredDistributionRule], now: datetime) -> None:
+        """No máximo um período começando no futuro, e só o último.
+
+        É a regra que agendar, cancelar e "a partir de agora" já supõem;
+        uma correção de data não pode quebrá-la.
+        """
+        futuras = [
+            i for i, regra in enumerate(rules)
+            if regra.effective_from is not None and regra.effective_from > now
+        ]
+        if len(futuras) > 1 or (futuras and futuras[0] != len(rules) - 1):
+            raise DistributionFutureRuleError("only the last rule may start in the future")
+
+    def _rule_index(self, rule_id: str) -> int:
+        for indice, regra in enumerate(self.data.rules):
+            if regra.id == rule_id:
+                return indice
+        raise DistributionValidationError("unknown distribution rule")
+
+    async def async_edit_rule(
+        self,
+        rule_id: str,
+        shares: Mapping[str, Any],
+        effective_from: datetime | None = None,
+        *,
+        expected_revision: int,
+    ) -> None:
+        """Corrige um período do rateio já informado.
+
+        Os percentuais são trocados. Com ``effective_from``, o início dele
+        muda e o fim do período anterior acompanha — a linha do tempo
+        continua sem buraco. O primeiro período não tem início ("desde
+        sempre") e não aceita um.
+        """
+        normalized_shares = validate_shares(shares, self._unit_ids)
+        if effective_from is not None and (
+            not isinstance(effective_from, datetime)
+            or effective_from.tzinfo is None
+            or effective_from.utcoffset() is None
+        ):
+            raise DistributionValidationError("effective_from must be timezone-aware")
+        async with self._lock:
+            self._check_revision(expected_revision)
+            now = self._now()
+            data = self.data
+            indice = self._rule_index(rule_id)
+            rules = list(data.rules)
+            regra = replace(rules[indice], shares=normalized_shares)
+            if effective_from is not None:
+                if indice == 0:
+                    raise DistributionValidationError(
+                        "the first rule has no start to move"
+                    )
+                inicio = effective_from.astimezone(ZoneInfo(self._zona()))
+                regra = replace(regra, effective_from=inicio)
+                rules[indice - 1] = replace(rules[indice - 1], effective_until=inicio)
+            rules[indice] = regra
+            self._future_check(rules, now)
+            await self._persist(
+                DistributionStorageData(data.revision + 1, data.timezone, tuple(rules))
+            )
+
+    async def async_remove_rule(
+        self, rule_id: str, *, expected_revision: int
+    ) -> None:
+        """Apaga um período do rateio, como se aquela mudança não existisse.
+
+        O período anterior continua valendo até onde o apagado ia. Apagar o
+        primeiro passa o "desde sempre" ao seguinte; apagar o único deixa o
+        rateio por informar.
+        """
+        async with self._lock:
+            self._check_revision(expected_revision)
+            now = self._now()
+            data = self.data
+            indice = self._rule_index(rule_id)
+            rules = list(data.rules)
+            apagada = rules.pop(indice)
+            if rules:
+                if indice == 0:
+                    rules[0] = replace(rules[0], effective_from=None)
+                else:
+                    rules[indice - 1] = replace(
+                        rules[indice - 1], effective_until=apagada.effective_until
+                    )
+            self._future_check(rules, now)
+            await self._persist(
+                DistributionStorageData(data.revision + 1, data.timezone, tuple(rules))
+            )
+
 def _timezone_do_hass(hass: Any) -> str:
     """O fuso configurado no Home Assistant, que a casa já declarou uma vez.
 

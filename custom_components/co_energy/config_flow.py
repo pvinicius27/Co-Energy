@@ -56,6 +56,7 @@ from .model_builder import (
 )
 from .model_storage import ModelStorageError, async_build_model_manager
 from .operational_settings import OperationalSettingsError
+from .unit_images import current_image_url
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,7 +69,6 @@ F_UNIDADE = "unidade"
 F_COR = "cor"
 F_FOTO = "foto"
 F_SEM_FOTO = "remover_foto"
-F_A_PARTIR = "a_partir_de"
 F_VIGENCIA = "vigencia"
 F_VALOR = "valor"
 F_MES = "mes"
@@ -344,6 +344,7 @@ _KNOWN_ERRORS = {
     passos.ERROR_HISTORY_KEEP,
     passos.ERROR_PREVIOUS_INCOMPLETE, passos.ERROR_PREVIOUS_NEEDS_CURRENT,
     passos.ERROR_PREVIOUS_SAME, passos.ERROR_PREVIOUS_UNKNOWN,
+    passos.ERROR_DISTRIBUTION_WHEN, passos.ERROR_DISTRIBUTION_UNKNOWN,
 }
 
 
@@ -363,6 +364,7 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
         self._unit_id: str | None = None
         self._pending: dict[str, Any] | None = None
         self._registro: str | None = None
+        self._regra: str | None = None
 
     # -- acesso ao que está rodando ------------------------------------
 
@@ -382,7 +384,7 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
 
         Fechar a cada "Enviar" obrigava a abrir Configurar de novo e refazer o
         caminho para mudar a segunda coisa. Agora a pessoa volta ao menu (ou à
-        tela de onde veio) e sai pelo "Concluir".
+        tela de onde veio) e sai pelo X: o que foi enviado já está gravado.
 
         O recarregamento é ESPERADO aqui, e não agendado: a tela seguinte lê o
         runtime, e um runtime no meio da recarga não existe. Recarregar não
@@ -408,12 +410,6 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
             return self.async_abort(reason="save_failed")
         self._pending = None
         return await self._async_done(back=back)
-
-    async def async_step_concluir(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Fecha a janela. O que foi salvo já está gravado e recarregado."""
-        return self.async_create_entry(data=dict(self.config_entry.options))
 
     # -- menu ----------------------------------------------------------
 
@@ -556,7 +552,7 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
                 "foto_info": (
                     # Altura maior que a da legenda: a foto passa a ditar a
                     # largura do bloco, que o Home Assistant centraliza.
-                    f'<img src="{apresentacao["image"]}" height="160" '
+                    f'<img src="{current_image_url(apresentacao["image"])}" height="160" '
                     'alt="Foto atual"><br>'
                     f"Atual: {apresentacao['image'].rsplit('/', 1)[-1]} · "
                     "enviar outra substitui"
@@ -835,39 +831,88 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
 
     # -- rateio --------------------------------------------------------
 
+    def _distribution(self) -> Any:
+        manager = self._runtime().distribution_manager
+        if manager is None or not manager.available:
+            return None
+        return manager
+
+    def _shares_schema(self, shares: Mapping[str, Any]) -> dict[Any, Any]:
+        esquema: dict[Any, Any] = {}
+        for chave, unit_id in passos.share_field_names(self._model()).items():
+            valor = shares.get(unit_id)
+            esquema[vol.Required(
+                chave, default=float(valor) if valor not in (None, "") else 0.0
+            )] = selector.NumberSelector(selector.NumberSelectorConfig(
+                min=0, max=100, step=0.01,
+                mode=selector.NumberSelectorMode.BOX, unit_of_measurement="%",
+            ))
+        return esquema
+
+    def _dia_e_hora_opcionais(self, dia: Any = None, hora: Any = None) -> dict[Any, Any]:
+        return {
+            vol.Optional(F_ANT_DIA, description={"suggested_value": dia}):
+                selector.DateSelector(),
+            vol.Optional(F_ANT_HORA, description={"suggested_value": hora}):
+                selector.SelectSelector(selector.SelectSelectorConfig(
+                    options=passos.hour_options(),
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )),
+        }
+
     async def async_step_rateio(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        manager = self._runtime().distribution_manager
-        if manager is None or not manager.available:
+        """O histórico do rateio e o que dá para fazer com ele."""
+        manager = self._distribution()
+        if manager is None:
+            return self.async_abort(reason="distribution_unavailable")
+        regras = manager.data.rules
+        opcoes = ["rateio_novo"]
+        if regras:
+            opcoes.append("rateio_editar")
+        opcoes.append("init")
+        return self.async_show_menu(
+            step_id="rateio",
+            menu_options=opcoes,
+            description_placeholders={
+                "historico": passos.markdown_list(
+                    passos.distribution_history(self._model(), regras),
+                    "nenhum rateio informado ainda.",
+                ),
+            },
+        )
+
+    async def async_step_rateio_novo(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        manager = self._distribution()
+        if manager is None:
             return self.async_abort(reason="distribution_unavailable")
         modelo = self._model()
-        campos = passos.share_field_names(modelo)
         errors: dict[str, str] = {}
+        entrada = user_input or {}
         if user_input is not None:
             try:
                 partes = passos.shares_from_form(modelo, user_input)
-                quando = user_input.get(F_A_PARTIR)
-                if quando:
-                    instante = passos.swap_instant(
-                        quando, dt_util.get_default_time_zone()
-                    )
-                    if instante > dt_util.now():
-                        # Data futura: agendamento (uma unica regra a frente).
-                        await manager.async_schedule_distribution(
-                            partes, instante,
-                            expected_revision=manager.revision,
-                        )
-                    else:
-                        # Data passada (ou agora): entra no historico, dividindo
-                        # a regra que cobre a data.
-                        await manager.async_set_distribution_at(
-                            partes, instante,
-                            expected_revision=manager.revision,
-                        )
-                else:
+                instante = passos.optional_instant(
+                    user_input.get(F_ANT_DIA), user_input.get(F_ANT_HORA),
+                    dt_util.get_default_time_zone(),
+                )
+                if instante is None:
                     await manager.async_set_distribution_immediate(
                         partes, expected_revision=manager.revision
+                    )
+                elif instante > dt_util.now():
+                    # Data futura: agendamento (uma unica regra a frente).
+                    await manager.async_schedule_distribution(
+                        partes, instante, expected_revision=manager.revision,
+                    )
+                else:
+                    # Data passada: entra no historico, dividindo a regra que
+                    # cobre a data.
+                    await manager.async_set_distribution_at(
+                        partes, instante, expected_revision=manager.revision,
                     )
             except DistributionError as error:
                 _LOGGER.warning("Rateio recusado: %s", error)
@@ -877,33 +922,112 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
             else:
                 # O gerenciador de rateio é o mesmo que o runtime usa: nada a
                 # recarregar, e recarregar tiraria a pessoa da tela à toa.
-                return await self._async_done(reload=False)
-        atuais: Mapping[str, Any] = {}
-        if manager.data.rules:
-            atuais = manager.data.rules[-1].shares
-        esquema: dict[Any, Any] = {}
-        for chave, unit_id in campos.items():
-            valor = atuais.get(unit_id)
-            esquema[vol.Required(
-                chave, default=float(valor) if valor is not None else 0.0
-            )] = selector.NumberSelector(selector.NumberSelectorConfig(
-                min=0, max=100, step=0.01,
-                mode=selector.NumberSelectorMode.BOX, unit_of_measurement="%",
-            ))
-        esquema[vol.Optional(F_A_PARTIR)] = selector.DateTimeSelector()
+                return await self._async_done(
+                    reload=False, back=self.async_step_rateio
+                )
+        regras = manager.data.rules
+        atuais: Mapping[str, Any] = regras[-1].shares if regras else {}
+        if user_input is not None:
+            atuais = {
+                unit_id: user_input.get(chave)
+                for chave, unit_id in passos.share_field_names(modelo).items()
+            }
         return self.async_show_form(
-            step_id="rateio",
-            data_schema=vol.Schema(esquema),
+            step_id="rateio_novo",
+            data_schema=vol.Schema({
+                **self._shares_schema(atuais),
+                **self._dia_e_hora_opcionais(
+                    entrada.get(F_ANT_DIA), entrada.get(F_ANT_HORA)
+                ),
+            }),
             errors=errors,
             description_placeholders={
                 "situacao": (
                     "Ainda não há rateio: informe como os créditos se dividem."
-                    if not manager.data.rules
-                    else "Os valores atuais já estão preenchidos."
+                    if not regras
+                    else "Os valores do rateio atual já estão preenchidos."
                 ),
-                "historico": passos.markdown_list(
-                    passos.distribution_history(modelo, manager.data.rules),
-                    "nenhum rateio informado ainda.",
+            },
+        )
+
+    async def async_step_rateio_editar(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        manager = self._distribution()
+        if manager is None:
+            return self.async_abort(reason="distribution_unavailable")
+        if user_input is not None:
+            self._regra = user_input[F_ANT_REGISTRO]
+            return await self.async_step_rateio_dados()
+        return self.async_show_form(
+            step_id="rateio_editar",
+            last_step=False,
+            data_schema=vol.Schema({
+                vol.Required(F_ANT_REGISTRO): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=passos.distribution_choices(
+                            self._model(), manager.data.rules
+                        ),
+                    )
+                ),
+            }),
+        )
+
+    async def async_step_rateio_dados(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        manager = self._distribution()
+        if manager is None:
+            return self.async_abort(reason="distribution_unavailable")
+        modelo = self._model()
+        try:
+            indice, regra = passos.distribution_rule(manager.data.rules, self._regra)
+        except ValueError:
+            return await self.async_step_rateio()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            try:
+                if user_input.get(F_ANT_APAGAR):
+                    await manager.async_remove_rule(
+                        regra.id, expected_revision=manager.revision
+                    )
+                else:
+                    partes = passos.shares_from_form(modelo, user_input)
+                    inicio = None
+                    if indice > 0:
+                        inicio = passos.moved_start(
+                            regra.effective_from,
+                            user_input.get(F_ANT_DIA), user_input.get(F_ANT_HORA),
+                            dt_util.get_default_time_zone(),
+                        )
+                    await manager.async_edit_rule(
+                        regra.id, partes, inicio,
+                        expected_revision=manager.revision,
+                    )
+            except DistributionError as error:
+                _LOGGER.warning("Correção do rateio recusada: %s", error)
+                errors["base"] = "distribution_edit_refused"
+            except ValueError as error:
+                errors["base"] = _error_key(error)
+            else:
+                return await self._async_done(
+                    reload=False, back=self.async_step_rateio
+                )
+        esquema = self._shares_schema(regra.shares)
+        if indice > 0:
+            dia, hora = passos.split_instant(regra.effective_from.isoformat())
+            esquema.update(self._hora_e_dia(dia, hora))
+        esquema[vol.Optional(F_ANT_APAGAR, default=False)] = selector.BooleanSelector()
+        return self.async_show_form(
+            step_id="rateio_dados",
+            data_schema=vol.Schema(esquema),
+            errors=errors,
+            description_placeholders={
+                "periodo": passos.distribution_period(regra),
+                "inicio": (
+                    "Este é o primeiro período: vale desde sempre, sem data de início."
+                    if indice == 0
+                    else "Mudar o início move junto o fim do período anterior."
                 ),
             },
         )
@@ -1127,7 +1251,7 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             try:
                 await self._async_update_settings(
-                    boundary_time=passos.boundary_from_selector(user_input.get(F_HORA))
+                    boundary_time=passos.boundary_from_hour(user_input.get(F_HORA))
                 )
             except OperationalSettingsError:
                 errors["base"] = passos.ERROR_TIME_INVALID
@@ -1138,7 +1262,12 @@ class CoEnergyOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="horario",
             data_schema=vol.Schema({
-                vol.Required(F_HORA, default=f"{atual}:00"): selector.TimeSelector(),
+                # Só a hora: o histórico de energia é de hora em hora.
+                vol.Required(F_HORA, default=passos.boundary_hour(atual)):
+                    selector.SelectSelector(selector.SelectSelectorConfig(
+                        options=passos.hour_options(),
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )),
             }),
             errors=errors,
         )
